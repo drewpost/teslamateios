@@ -130,6 +130,7 @@ struct OverviewView: View {
                 await viewModel.refresh(carId: carId)
             }
             .navigationTitle("Overview")
+            .carSwitcherToolbar()
             .task {
                 await viewModel.startListening(carId: carId)
             }

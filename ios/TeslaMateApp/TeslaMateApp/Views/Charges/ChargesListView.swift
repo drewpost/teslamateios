@@ -42,6 +42,7 @@ struct ChargesListView: View {
                 await viewModel.loadCharges(carId: carId)
             }
             .navigationTitle("Charges")
+            .carSwitcherToolbar()
             .task {
                 if viewModel.charges.isEmpty {
                     await viewModel.loadCharges(carId: carId)

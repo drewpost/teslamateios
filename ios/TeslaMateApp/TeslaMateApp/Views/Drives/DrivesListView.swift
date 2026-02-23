@@ -42,6 +42,7 @@ struct DrivesListView: View {
                 await viewModel.loadDrives(carId: carId)
             }
             .navigationTitle("Drives")
+            .carSwitcherToolbar()
             .task {
                 if viewModel.drives.isEmpty {
                     await viewModel.loadDrives(carId: carId)

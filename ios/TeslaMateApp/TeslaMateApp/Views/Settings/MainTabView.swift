@@ -41,6 +41,18 @@ struct MainTabView: View {
                 Label("Charges", systemImage: "bolt.fill")
             }
 
+            Group {
+                if let car = appState.selectedCar {
+                    InsightsHomeView(carId: car.id)
+                        .id(car.id)
+                } else {
+                    ProgressView("Loading...")
+                }
+            }
+            .tabItem {
+                Label("Insights", systemImage: "chart.xyaxis.line")
+            }
+
             SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gearshape.fill")
