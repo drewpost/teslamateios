@@ -83,7 +83,7 @@ defmodule TeslaMateWeb.Api.Views.CarJSON do
       frunk_open: s.frunk_open,
       is_user_present: s.is_user_present,
       elevation: s.elevation,
-      geofence: s.geofence,
+      geofence: format_geofence(s.geofence),
       model: s.model,
       trim_badging: s.trim_badging,
       exterior_color: s.exterior_color,
@@ -111,6 +111,10 @@ defmodule TeslaMateWeb.Api.Views.CarJSON do
   defp to_float(v) when is_float(v), do: v
   defp to_float(v) when is_integer(v), do: v / 1
   defp to_float(v), do: v
+
+  defp format_geofence(%{name: name}), do: name
+  defp format_geofence(name) when is_binary(name), do: name
+  defp format_geofence(_), do: nil
 
   defp format_datetime(nil), do: nil
   defp format_datetime(:unknown), do: nil
