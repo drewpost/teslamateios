@@ -9,6 +9,17 @@ struct DrivesListView: View {
             Group {
                 if viewModel.drives.isEmpty && viewModel.isLoading {
                     ProgressView("Loading drives...")
+                } else if viewModel.drives.isEmpty, let error = viewModel.error {
+                    ContentUnavailableView {
+                        Label("Error Loading Drives", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Retry") {
+                            Task { await viewModel.loadDrives(carId: carId) }
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 } else if viewModel.drives.isEmpty {
                     ContentUnavailableView(
                         "No Drives",
@@ -46,20 +57,6 @@ struct DrivesListView: View {
             .task {
                 if viewModel.drives.isEmpty {
                     await viewModel.loadDrives(carId: carId)
-                }
-            }
-            .overlay {
-                if let error = viewModel.error {
-                    VStack {
-                        Spacer()
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Color.red.cornerRadius(8))
-                            .padding()
-                    }
                 }
             }
         }

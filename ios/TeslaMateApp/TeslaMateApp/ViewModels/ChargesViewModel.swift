@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 @Observable
 class ChargesViewModel {
     var charges: [ChargingSession] = []
@@ -19,16 +20,12 @@ class ChargesViewModel {
 
         do {
             let response = try await APIClient.shared.getCharges(carId: carId, page: 1, perPage: perPage)
-            await MainActor.run {
-                self.charges = response.data
-                self.hasMore = response.data.count >= self.perPage
-                self.isLoading = false
-            }
+            self.charges = response.data
+            self.hasMore = response.data.count >= self.perPage
+            self.isLoading = false
         } catch {
-            await MainActor.run {
-                self.error = error.localizedDescription
-                self.isLoading = false
-            }
+            self.error = error.localizedDescription
+            self.isLoading = false
         }
     }
 
@@ -40,17 +37,13 @@ class ChargesViewModel {
 
         do {
             let response = try await APIClient.shared.getCharges(carId: carId, page: currentPage, perPage: perPage)
-            await MainActor.run {
-                self.charges.append(contentsOf: response.data)
-                self.hasMore = response.data.count >= self.perPage
-                self.isLoading = false
-            }
+            self.charges.append(contentsOf: response.data)
+            self.hasMore = response.data.count >= self.perPage
+            self.isLoading = false
         } catch {
-            await MainActor.run {
-                self.currentPage -= 1
-                self.error = error.localizedDescription
-                self.isLoading = false
-            }
+            self.currentPage -= 1
+            self.error = error.localizedDescription
+            self.isLoading = false
         }
     }
 }

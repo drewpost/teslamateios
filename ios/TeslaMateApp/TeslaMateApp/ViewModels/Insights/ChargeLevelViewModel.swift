@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 @Observable
 class ChargeLevelViewModel {
     var data: ChargeLevelResponse?

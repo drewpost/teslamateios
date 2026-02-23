@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 @Observable
 class OverviewViewModel {
     var summary: VehicleSummary?
@@ -34,11 +35,9 @@ class OverviewViewModel {
 
         streamTask = Task {
             for await update in stream {
-                await MainActor.run {
-                    self.summary = update
-                    self.isLoading = false
-                    self.error = nil
-                }
+                self.summary = update
+                self.isLoading = false
+                self.error = nil
             }
         }
     }
@@ -52,18 +51,15 @@ class OverviewViewModel {
 
     func refresh(carId: Int) async {
         isLoading = true
-        defer { isLoading = false }
 
         do {
             let newSummary = try await APIClient.shared.getCarSummary(carId: carId)
-            await MainActor.run {
-                self.summary = newSummary
-                self.error = nil
-            }
+            self.summary = newSummary
+            self.error = nil
+            self.isLoading = false
         } catch {
-            await MainActor.run {
-                self.error = error.localizedDescription
-            }
+            self.error = error.localizedDescription
+            self.isLoading = false
         }
     }
 }

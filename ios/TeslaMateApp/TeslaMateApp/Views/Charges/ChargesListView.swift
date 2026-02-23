@@ -9,6 +9,17 @@ struct ChargesListView: View {
             Group {
                 if viewModel.charges.isEmpty && viewModel.isLoading {
                     ProgressView("Loading charges...")
+                } else if viewModel.charges.isEmpty, let error = viewModel.error {
+                    ContentUnavailableView {
+                        Label("Error Loading Charges", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Retry") {
+                            Task { await viewModel.loadCharges(carId: carId) }
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 } else if viewModel.charges.isEmpty {
                     ContentUnavailableView(
                         "No Charges",
@@ -46,20 +57,6 @@ struct ChargesListView: View {
             .task {
                 if viewModel.charges.isEmpty {
                     await viewModel.loadCharges(carId: carId)
-                }
-            }
-            .overlay {
-                if let error = viewModel.error {
-                    VStack {
-                        Spacer()
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Color.red.cornerRadius(8))
-                            .padding()
-                    }
                 }
             }
         }
