@@ -34,7 +34,11 @@ defmodule TeslaMateWeb.Api.Auth.TokenTest do
 
     test "rejects token signed with wrong secret" do
       wrong_signer = Joken.Signer.create("HS256", "wrong_secret_that_is_long_enough_32_bytes!")
-      claims = %{"sub" => "api_user", "exp" => DateTime.utc_now() |> DateTime.add(3600) |> DateTime.to_unix()}
+
+      claims = %{
+        "sub" => "api_user",
+        "exp" => DateTime.utc_now() |> DateTime.add(3600) |> DateTime.to_unix()
+      }
 
       {:ok, bad_token, _claims} =
         Joken.generate_and_sign(Token.token_config(), claims, wrong_signer)

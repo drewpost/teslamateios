@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
+    @Environment(UnitPreference.self) private var unitPreference
     @State private var viewModel = SettingsViewModel()
 
     var body: some View {
@@ -58,6 +59,12 @@ struct SettingsView: View {
                             .foregroundColor(.red)
                             .font(.caption)
                     }
+                }
+
+                Section("Units") {
+                    @Bindable var units = unitPreference
+                    Toggle("Use Miles", isOn: $units.useMiles)
+                    Toggle("Use Fahrenheit", isOn: $units.useFahrenheit)
                 }
 
                 if appState.isAuthenticated {

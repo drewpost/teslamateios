@@ -7,17 +7,18 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "==> Syncing source to Pi..."
 rsync -az --delete \
-  --exclude '_build' \
-  --exclude 'deps' \
-  --exclude '.git' \
-  --exclude 'ios' \
-  --exclude 'node_modules' \
-  --exclude 'assets/node_modules' \
-  --exclude '.elixir_ls' \
-  --exclude 'DerivedData' \
-  "$REPO_DIR/" "$PI_HOST:$PI_DIR/"
+	--exclude '_build' \
+	--exclude 'deps' \
+	--exclude '.git' \
+	--exclude 'ios' \
+	--exclude 'node_modules' \
+	--exclude 'assets/node_modules' \
+	--exclude '.elixir_ls' \
+	--exclude 'DerivedData' \
+	"$REPO_DIR/" "$PI_HOST:$PI_DIR/"
 
 echo "==> Building Docker image on Pi (this may take several minutes)..."
+# shellcheck disable=SC2029 # PI_DIR is intentionally expanded locally
 ssh "$PI_HOST" "cd $PI_DIR && docker build -t teslamate-ios:latest ."
 
 echo "==> Updating docker-compose and restarting..."

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DriveRowView: View {
     let drive: Drive
+    @Environment(UnitPreference.self) private var unitPreference
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -23,10 +24,12 @@ struct DriveRowView: View {
 
             // Stats
             HStack(spacing: 16) {
-                Label(drive.formattedDistance, systemImage: "road.lanes")
+                if let distance = drive.distance {
+                    Label(unitPreference.formatDistance(distance), systemImage: "road.lanes")
+                }
                 Label(drive.formattedDuration, systemImage: "clock")
                 if let speedMax = drive.speedMax {
-                    Label("\(speedMax) km/h", systemImage: "gauge.with.dots.needle.67percent")
+                    Label(unitPreference.formatSpeed(speedMax), systemImage: "gauge.with.dots.needle.67percent")
                 }
             }
             .font(.caption)

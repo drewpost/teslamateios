@@ -21,7 +21,10 @@ defmodule TeslaMateWeb.Api.Auth.PlugTest do
 
       assert conn.halted
       assert conn.status == 401
-      assert Jason.decode!(conn.resp_body) == %{"error" => "Invalid or missing authentication token"}
+
+      assert Jason.decode!(conn.resp_body) == %{
+               "error" => "Invalid or missing authentication token"
+             }
     end
 
     test "returns 401 with malformed authorization header", %{conn: conn} do

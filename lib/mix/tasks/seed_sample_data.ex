@@ -77,7 +77,10 @@ defmodule Mix.Tasks.Seed.SampleData do
     # Create addresses
     {:ok, home_addr} = create_address("123 Main St, San Francisco, CA", 37.7749, -122.4194)
     {:ok, work_addr} = create_address("456 Market St, San Francisco, CA", 37.7899, -122.4009)
-    {:ok, mall_addr} = create_address("Westfield SF Centre, San Francisco, CA", 37.7841, -122.4065)
+
+    {:ok, mall_addr} =
+      create_address("Westfield SF Centre, San Francisco, CA", 37.7841, -122.4065)
+
     {:ok, park_addr} = create_address("Golden Gate Park, San Francisco, CA", 37.7694, -122.4862)
     {:ok, sc_addr} = create_address("Tesla Supercharger, Daly City, CA", 37.6879, -122.4702)
 
@@ -94,12 +97,16 @@ defmodule Mix.Tasks.Seed.SampleData do
       {home_addr, work_addr, nil, nil, 12.5, 25, 37.7749, -122.4194, 37.7899, -122.4009},
       {work_addr, mall_addr, nil, nil, 3.2, 10, 37.7899, -122.4009, 37.7841, -122.4065},
       {mall_addr, home_addr, nil, home_geofence, 8.7, 20, 37.7841, -122.4065, 37.7749, -122.4194},
-      {home_addr, park_addr, home_geofence, nil, 15.3, 30, 37.7749, -122.4194, 37.7694, -122.4862},
-      {park_addr, home_addr, nil, home_geofence, 15.1, 28, 37.7694, -122.4862, 37.7749, -122.4194},
+      {home_addr, park_addr, home_geofence, nil, 15.3, 30, 37.7749, -122.4194, 37.7694,
+       -122.4862},
+      {park_addr, home_addr, nil, home_geofence, 15.1, 28, 37.7694, -122.4862, 37.7749,
+       -122.4194},
       {home_addr, sc_addr, home_geofence, nil, 22.0, 35, 37.7749, -122.4194, 37.6879, -122.4702},
       {sc_addr, home_addr, nil, home_geofence, 21.8, 33, 37.6879, -122.4702, 37.7749, -122.4194},
-      {home_addr, work_addr, home_geofence, nil, 12.3, 24, 37.7749, -122.4194, 37.7899, -122.4009},
-      {work_addr, home_addr, nil, home_geofence, 12.8, 26, 37.7899, -122.4009, 37.7749, -122.4194},
+      {home_addr, work_addr, home_geofence, nil, 12.3, 24, 37.7749, -122.4194, 37.7899,
+       -122.4009},
+      {work_addr, home_addr, nil, home_geofence, 12.8, 26, 37.7899, -122.4009, 37.7749,
+       -122.4194},
       {home_addr, park_addr, home_geofence, nil, 14.9, 29, 37.7749, -122.4194, 37.7694, -122.4862}
     ]
 
@@ -179,7 +186,7 @@ defmodule Mix.Tasks.Seed.SampleData do
           speed: 30 + :rand.uniform(40),
           power: -10 + :rand.uniform(60),
           odometer: 10000.0 + i * dist + dist * frac,
-          battery_level: (80 - i) - trunc(5 * frac),
+          battery_level: 80 - i - trunc(5 * frac),
           ideal_battery_range_km: Decimal.new("340.0"),
           rated_battery_range_km: Decimal.new("330.0")
         })
@@ -217,7 +224,12 @@ defmodule Mix.Tasks.Seed.SampleData do
         |> Repo.insert()
 
       {:ok, cp} =
-        %ChargingProcess{car_id: car.id, position_id: cp_pos.id, address_id: addr.id, geofence_id: if(gf, do: gf.id)}
+        %ChargingProcess{
+          car_id: car.id,
+          position_id: cp_pos.id,
+          address_id: addr.id,
+          geofence_id: if(gf, do: gf.id)
+        }
         |> ChargingProcess.changeset(%{
           start_date: charge_start,
           end_date: charge_end,
