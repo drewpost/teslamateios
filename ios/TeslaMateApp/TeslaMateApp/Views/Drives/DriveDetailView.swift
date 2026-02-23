@@ -3,6 +3,7 @@ import MapKit
 
 struct DriveDetailView: View {
     let driveId: Int
+    @Environment(UnitPreference.self) private var unitPreference
     @State private var drive: Drive?
     @State private var positions: [Position] = []
     @State private var isLoading = true
@@ -50,19 +51,21 @@ struct DriveDetailView: View {
 
                     // Stats grid
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        StatCard(title: "Distance", value: drive.formattedDistance)
+                        if let distance = drive.distance {
+                            StatCard(title: "Distance", value: unitPreference.formatDistance(distance))
+                        }
                         StatCard(title: "Duration", value: drive.formattedDuration)
                         if let speedMax = drive.speedMax {
-                            StatCard(title: "Max Speed", value: "\(speedMax) km/h")
+                            StatCard(title: "Max Speed", value: unitPreference.formatSpeed(speedMax))
                         }
                         if let powerMax = drive.powerMax {
                             StatCard(title: "Max Power", value: "\(powerMax) kW")
                         }
                         if let temp = drive.outsideTempAvg {
-                            StatCard(title: "Avg Outside Temp", value: String(format: "%.1f\u{00B0}C", temp))
+                            StatCard(title: "Avg Outside Temp", value: unitPreference.formatTemperature(temp))
                         }
                         if let ascent = drive.ascent, let descent = drive.descent {
-                            StatCard(title: "Elevation", value: "+\(ascent)m / -\(descent)m")
+                            StatCard(title: "Elevation", value: "+\(unitPreference.formatElevation(ascent)) / -\(unitPreference.formatElevation(descent))")
                         }
                     }
                     .padding(.horizontal)

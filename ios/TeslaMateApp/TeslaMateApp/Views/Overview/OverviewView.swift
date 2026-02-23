@@ -1,9 +1,12 @@
 import SwiftUI
+import MapKit
 
 struct OverviewView: View {
     let carId: Int
     @Environment(AppState.self) private var appState
+    @Environment(UnitPreference.self) private var unitPreference
     @State private var viewModel = OverviewViewModel()
+    @State private var cameraPosition: MapCameraPosition = .automatic
 
     var body: some View {
         NavigationStack {
@@ -24,24 +27,39 @@ struct OverviewView: View {
                         // State Badge
                         StateBadgeView(state: summary.formattedState)
 
+                        // Speed Display (when driving)
+                        if summary.isDriving, let speed = summary.speed {
+                            VStack(spacing: 4) {
+                                Text(unitPreference.formatSpeed(speed))
+                                    .font(.system(size: 48, weight: .bold, design: .rounded))
+                                    .monospacedDigit()
+                                if let power = summary.power {
+                                    Text("\(power) kW")
+                                        .font(.title3)
+                                        .foregroundColor(power < 0 ? .green : .orange)
+                                }
+                            }
+                            .padding(.vertical, 8)
+                        }
+
                         // Battery Gauge
                         BatteryGaugeView(
                             level: summary.batteryLevel ?? 0,
                             isCharging: summary.isCharging,
-                            rangeKm: summary.rangeKm
+                            formattedRange: summary.rangeKm.map { unitPreference.formatRange($0) }
                         )
                         .frame(height: 180)
 
                         // Info Grid
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                             if let temp = summary.outsideTemp {
-                                InfoCard(title: "Outside", value: String(format: "%.1f\u{00B0}C", temp), icon: "thermometer")
+                                InfoCard(title: "Outside", value: unitPreference.formatTemperature(temp), icon: "thermometer")
                             }
                             if let temp = summary.insideTemp {
-                                InfoCard(title: "Inside", value: String(format: "%.1f\u{00B0}C", temp), icon: "thermometer.sun")
+                                InfoCard(title: "Inside", value: unitPreference.formatTemperature(temp), icon: "thermometer.sun")
                             }
                             if let odometer = summary.odometer {
-                                InfoCard(title: "Odometer", value: String(format: "%.0f km", odometer), icon: "gauge.with.dots.needle.bottom.50percent")
+                                InfoCard(title: "Odometer", value: unitPreference.formatDistanceInt(odometer), icon: "gauge.with.dots.needle.bottom.50percent")
                             }
                             if let version = summary.version {
                                 InfoCard(title: "Software", value: version, icon: "arrow.down.app")
@@ -50,7 +68,7 @@ struct OverviewView: View {
                                 InfoCard(title: "Location", value: geofence, icon: "location.fill")
                             }
                             if let elevation = summary.elevation {
-                                InfoCard(title: "Elevation", value: "\(elevation)m", icon: "mountain.2")
+                                InfoCard(title: "Elevation", value: unitPreference.formatElevation(elevation), icon: "mountain.2")
                             }
                         }
                         .padding(.horizontal)
@@ -63,6 +81,31 @@ struct OverviewView: View {
                             StatusIcon(icon: "fan.fill", active: summary.isClimateOn == true, label: "Climate")
                         }
                         .padding()
+
+                        // Location Map
+                        if let lat = summary.latitude, let lng = summary.longitude {
+                            Map(position: $cameraPosition) {
+                                Annotation("", coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng)) {
+                                    Image(systemName: "car.fill")
+                                        .font(.title2)
+                                        .foregroundColor(.accentColor)
+                                        .rotationEffect(.degrees(Double(summary.heading ?? 0)))
+                                }
+                            }
+                            .frame(height: 250)
+                            .cornerRadius(12)
+                            .padding(.horizontal)
+                            .allowsHitTesting(false)
+                            .onChange(of: summary.latitude) {
+                                updateCamera(lat: lat, lng: lng)
+                            }
+                            .onChange(of: summary.longitude) {
+                                updateCamera(lat: lat, lng: lng)
+                            }
+                            .onAppear {
+                                updateCamera(lat: lat, lng: lng)
+                            }
+                        }
                     }
                     .padding()
                 } else if viewModel.isLoading {
@@ -93,6 +136,15 @@ struct OverviewView: View {
             .onDisappear {
                 Task { await viewModel.stopListening() }
             }
+        }
+    }
+
+    private func updateCamera(lat: Double, lng: Double) {
+        withAnimation {
+            cameraPosition = .region(MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: lat, longitude: lng),
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            ))
         }
     }
 }

@@ -18,6 +18,7 @@ defmodule TeslaMateWeb.Api.PositionController do
   end
 
   defp parse_int(nil, default), do: default
+
   defp parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {int, _} -> int
@@ -26,6 +27,7 @@ defmodule TeslaMateWeb.Api.PositionController do
   end
 
   defp maybe_put_date(opts, _key, nil), do: opts
+
   defp maybe_put_date(opts, key, val) do
     case DateTime.from_iso8601(val) do
       {:ok, dt, _} -> Keyword.put(opts, key, dt)

@@ -4,7 +4,15 @@ import SwiftUI
 @Observable
 class AppState {
     var isAuthenticated = false
-    var selectedCar: Car?
+    var selectedCar: Car? {
+        didSet {
+            if let id = selectedCar?.id {
+                UserDefaults.standard.set(id, forKey: "selectedCarId")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "selectedCarId")
+            }
+        }
+    }
     var cars: [Car] = []
     var connectionStatus: ConnectionStatus = .disconnected
 
@@ -41,8 +49,13 @@ class AppState {
     func loadCars() async {
         do {
             cars = try await APIClient.shared.getCars()
-            if selectedCar == nil, let first = cars.first {
-                selectedCar = first
+            if selectedCar == nil {
+                let savedId = UserDefaults.standard.object(forKey: "selectedCarId") as? Int
+                if let savedId, let saved = cars.first(where: { $0.id == savedId }) {
+                    selectedCar = saved
+                } else if let first = cars.first {
+                    selectedCar = first
+                }
             }
         } catch {
             connectionStatus = .error(error.localizedDescription)

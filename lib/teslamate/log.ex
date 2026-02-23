@@ -70,13 +70,22 @@ defmodule TeslaMate.Log do
 
     query =
       case {Keyword.get(opts, :since), Keyword.get(opts, :until)} do
-        {nil, nil} -> query
-        {since, nil} -> from d in query, where: d.start_date >= ^since
-        {nil, until_dt} -> from d in query, where: d.start_date <= ^until_dt
-        {since, until_dt} -> from d in query, where: d.start_date >= ^since and d.start_date <= ^until_dt
+        {nil, nil} ->
+          query
+
+        {since, nil} ->
+          from d in query, where: d.start_date >= ^since
+
+        {nil, until_dt} ->
+          from d in query, where: d.start_date <= ^until_dt
+
+        {since, until_dt} ->
+          from d in query, where: d.start_date >= ^since and d.start_date <= ^until_dt
       end
 
-    count_query = from d in Drive, where: d.car_id == ^car_id and not is_nil(d.end_date), select: count()
+    count_query =
+      from d in Drive, where: d.car_id == ^car_id and not is_nil(d.end_date), select: count()
+
     total = Repo.one(count_query)
     entries = Repo.all(query)
 
@@ -122,13 +131,24 @@ defmodule TeslaMate.Log do
 
     query =
       case {Keyword.get(opts, :since), Keyword.get(opts, :until)} do
-        {nil, nil} -> query
-        {since, nil} -> from cp in query, where: cp.start_date >= ^since
-        {nil, until_dt} -> from cp in query, where: cp.start_date <= ^until_dt
-        {since, until_dt} -> from cp in query, where: cp.start_date >= ^since and cp.start_date <= ^until_dt
+        {nil, nil} ->
+          query
+
+        {since, nil} ->
+          from cp in query, where: cp.start_date >= ^since
+
+        {nil, until_dt} ->
+          from cp in query, where: cp.start_date <= ^until_dt
+
+        {since, until_dt} ->
+          from cp in query, where: cp.start_date >= ^since and cp.start_date <= ^until_dt
       end
 
-    count_query = from cp in ChargingProcess, where: cp.car_id == ^car_id and not is_nil(cp.end_date), select: count()
+    count_query =
+      from cp in ChargingProcess,
+        where: cp.car_id == ^car_id and not is_nil(cp.end_date),
+        select: count()
+
     total = Repo.one(count_query)
     entries = Repo.all(query)
 

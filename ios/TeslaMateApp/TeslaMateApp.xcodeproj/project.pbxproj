@@ -42,6 +42,7 @@
 		A10000000000000000000021 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000021 /* ContentView.swift */; };
 		A10000000000000000000022 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000022 /* MainTabView.swift */; };
 		A10000000000000000000023 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000023 /* SettingsView.swift */; };
+		A10000000000000000000024 /* UnitPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000024 /* UnitPreference.swift */; };
 		A10000000000000000000030 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C10000000000000000000001 /* SwiftUI.framework */; };
 		A10000000000000000000031 /* SwiftData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C10000000000000000000002 /* SwiftData.framework */; };
 		A10000000000000000000032 /* MapKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C10000000000000000000003 /* MapKit.framework */; };
@@ -103,6 +104,7 @@
 		B10000000000000000000021 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10000000000000000000022 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		B10000000000000000000023 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B10000000000000000000024 /* UnitPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnitPreference.swift; sourceTree = "<group>"; };
 		C10000000000000000000001 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		C10000000000000000000002 /* SwiftData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftData.framework; path = System/Library/Frameworks/SwiftData.framework; sourceTree = SDKROOT; };
 		C10000000000000000000003 /* MapKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MapKit.framework; path = System/Library/Frameworks/MapKit.framework; sourceTree = SDKROOT; };
@@ -176,6 +178,7 @@
 				B10000000000000000000005 /* Drive.swift */,
 				B10000000000000000000006 /* Position.swift */,
 				B10000000000000000000007 /* VehicleSummary.swift */,
+				B10000000000000000000024 /* UnitPreference.swift */,
 				F10000000000000000000004 /* Cache */,
 			);
 			path = Models;
@@ -455,6 +458,7 @@
 				A10000000000000000000021 /* ContentView.swift in Sources */,
 				A10000000000000000000022 /* MainTabView.swift in Sources */,
 				A10000000000000000000023 /* SettingsView.swift in Sources */,
+				A10000000000000000000024 /* UnitPreference.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

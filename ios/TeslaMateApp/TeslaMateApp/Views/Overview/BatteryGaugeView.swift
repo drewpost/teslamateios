@@ -3,7 +3,7 @@ import SwiftUI
 struct BatteryGaugeView: View {
     let level: Int
     let isCharging: Bool
-    let rangeKm: Double?
+    let formattedRange: String?
 
     private var color: Color {
         if level > 50 { return .green }
@@ -38,8 +38,8 @@ struct BatteryGaugeView: View {
                     }
                     Text("\(level)%")
                         .font(.system(size: 36, weight: .bold, design: .rounded))
-                    if let range = rangeKm {
-                        Text(String(format: "%.0f km", range))
+                    if let range = formattedRange {
+                        Text(range)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }

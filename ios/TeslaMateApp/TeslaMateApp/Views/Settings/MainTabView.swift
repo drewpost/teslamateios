@@ -8,6 +8,7 @@ struct MainTabView: View {
             Group {
                 if let car = appState.selectedCar {
                     OverviewView(carId: car.id)
+                        .id(car.id)
                 } else {
                     ProgressView("Loading...")
                 }
@@ -19,6 +20,7 @@ struct MainTabView: View {
             Group {
                 if let car = appState.selectedCar {
                     DrivesListView(carId: car.id)
+                        .id(car.id)
                 } else {
                     ProgressView("Loading...")
                 }
@@ -30,6 +32,7 @@ struct MainTabView: View {
             Group {
                 if let car = appState.selectedCar {
                     ChargesListView(carId: car.id)
+                        .id(car.id)
                 } else {
                     ProgressView("Loading...")
                 }
