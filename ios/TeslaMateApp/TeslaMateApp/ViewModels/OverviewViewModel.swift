@@ -10,13 +10,25 @@ class OverviewViewModel {
     private var streamTask: Task<Void, Never>?
 
     func startListening(carId: Int) async {
+        isLoading = true
+
         let auth = AuthService.shared
-        guard let jwt = await auth.jwt else { return }
+        guard let jwt = await auth.jwt else {
+            isLoading = false
+            error = "Not authenticated"
+            return
+        }
         let serverURL = await auth.serverURL
 
         webSocketClient = WebSocketClient(serverURL: serverURL, jwt: jwt, carId: carId)
 
-        guard let client = webSocketClient else { return }
+        guard let client = webSocketClient else {
+            isLoading = false
+            return
+        }
+
+        // Fetch initial data via REST while WebSocket connects
+        Task { await refresh(carId: carId) }
 
         let stream = await client.connect()
 
@@ -24,6 +36,7 @@ class OverviewViewModel {
             for await update in stream {
                 await MainActor.run {
                     self.summary = update
+                    self.isLoading = false
                     self.error = nil
                 }
             }

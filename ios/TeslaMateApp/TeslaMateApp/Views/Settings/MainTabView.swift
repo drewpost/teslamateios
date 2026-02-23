@@ -10,7 +10,7 @@ struct MainTabView: View {
                     OverviewView(carId: car.id)
                         .id(car.id)
                 } else {
-                    ProgressView("Loading...")
+                    loadingOrErrorView
                 }
             }
             .tabItem {
@@ -22,7 +22,7 @@ struct MainTabView: View {
                     DrivesListView(carId: car.id)
                         .id(car.id)
                 } else {
-                    ProgressView("Loading...")
+                    loadingOrErrorView
                 }
             }
             .tabItem {
@@ -34,7 +34,7 @@ struct MainTabView: View {
                     ChargesListView(carId: car.id)
                         .id(car.id)
                 } else {
-                    ProgressView("Loading...")
+                    loadingOrErrorView
                 }
             }
             .tabItem {
@@ -46,7 +46,7 @@ struct MainTabView: View {
                     InsightsHomeView(carId: car.id)
                         .id(car.id)
                 } else {
-                    ProgressView("Loading...")
+                    loadingOrErrorView
                 }
             }
             .tabItem {
@@ -57,6 +57,28 @@ struct MainTabView: View {
                 .tabItem {
                     Label("Settings", systemImage: "gearshape.fill")
                 }
+        }
+    }
+
+    @ViewBuilder
+    private var loadingOrErrorView: some View {
+        if case .error(let message) = appState.connectionStatus {
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.largeTitle)
+                    .foregroundColor(.orange)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+                Button("Retry") {
+                    Task { await appState.loadCars() }
+                }
+                .buttonStyle(.bordered)
+            }
+        } else {
+            ProgressView("Loading...")
         }
     }
 }
