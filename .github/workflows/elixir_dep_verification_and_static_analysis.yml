@@ -31,6 +31,10 @@ jobs:
           cache-name-compiled: ${{ env.CACHE_NAME_COMPILED_DEV }}
           mix-env: dev
 
+      - name: Compile deps
+        run: mix deps.compile
+        shell: sh
+
       - name: Compile without warnings
         run: mix compile --warnings-as-errors
         shell: sh
