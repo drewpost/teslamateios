@@ -858,4 +858,843 @@ defmodule TeslaMate.Log do
     |> Update.changeset(%{start_date: date, end_date: date, version: version})
     |> Repo.insert()
   end
+
+  ## Stats Queries
+
+  defp stats_date_filter(query, field, opts) do
+    from_dt = Keyword.get(opts, :from)
+    to_dt = Keyword.get(opts, :to)
+
+    query
+    |> maybe_filter_from(field, from_dt)
+    |> maybe_filter_to(field, to_dt)
+  end
+
+  defp maybe_filter_from(query, _field, nil), do: query
+  defp maybe_filter_from(query, :start_date, from), do: from(q in query, where: q.start_date >= ^from)
+  defp maybe_filter_from(query, :date, from), do: from(q in query, where: q.date >= ^from)
+
+  defp maybe_filter_to(query, _field, nil), do: query
+  defp maybe_filter_to(query, :start_date, to), do: from(q in query, where: q.start_date <= ^to)
+  defp maybe_filter_to(query, :date, to), do: from(q in query, where: q.date <= ^to)
+
+  def stats_battery_health(car_id, opts \\ []) do
+    query =
+      from c in Charge,
+        join: cp in ChargingProcess, on: c.charging_process_id == cp.id,
+        where: cp.car_id == ^car_id and c.battery_level == 100 and not is_nil(c.rated_battery_range_km),
+        select: %{
+          date: c.date,
+          rated_range_km: c.rated_battery_range_km,
+          battery_level: c.battery_level,
+          soh_estimate: c.rated_battery_range_km
+        },
+        order_by: [asc: c.date]
+
+    query = stats_date_filter(query, :date, opts)
+    points = Repo.all(query)
+
+    current_soh =
+      case List.last(points) do
+        nil -> nil
+        p -> p.soh_estimate
+      end
+
+    # Summary stats from charging processes
+    summary_query =
+      from cp in ChargingProcess,
+        where: cp.car_id == ^car_id and not is_nil(cp.charge_energy_added),
+        select: %{
+          total_charges: count(cp.id),
+          total_energy_added: sum(cp.charge_energy_added),
+          ac_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE NOT EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp),
+          dc_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp)
+        }
+
+    summary_query = stats_date_filter(summary_query, :start_date, opts)
+    summary = Repo.one(summary_query) || %{total_charges: 0, total_energy_added: nil, ac_energy_kwh: nil, dc_energy_kwh: nil}
+
+    # Usable capacity: avg rated range from last 10 charges to 100%
+    capacity_query =
+      from c in Charge,
+        join: cp in ChargingProcess, on: c.charging_process_id == cp.id,
+        where: cp.car_id == ^car_id and c.battery_level == 100 and not is_nil(c.rated_battery_range_km),
+        select: c.rated_battery_range_km,
+        order_by: [desc: c.date],
+        limit: 10
+
+    recent_ranges = Repo.all(capacity_query)
+    usable_capacity_kwh =
+      case recent_ranges do
+        [] -> nil
+        ranges ->
+          avg_range = Enum.reduce(ranges, Decimal.new(0), &Decimal.add/2) |> Decimal.div(length(ranges))
+          avg_range
+      end
+
+    %{
+      current_soh: current_soh,
+      points: points,
+      total_charges: summary.total_charges,
+      total_energy_added: summary.total_energy_added,
+      ac_energy_kwh: summary.ac_energy_kwh,
+      dc_energy_kwh: summary.dc_energy_kwh,
+      usable_capacity_km: usable_capacity_kwh
+    }
+  end
+
+  def stats_projected_range(car_id, opts \\ []) do
+    query =
+      from c in Charge,
+        join: cp in ChargingProcess, on: c.charging_process_id == cp.id,
+        left_join: p in Position, on: p.id == cp.position_id,
+        where: cp.car_id == ^car_id and c.battery_level == 100 and
+               not is_nil(c.rated_battery_range_km) and not is_nil(c.ideal_battery_range_km),
+        select: %{
+          date: c.date,
+          rated_range_km: c.rated_battery_range_km,
+          ideal_range_km: c.ideal_battery_range_km,
+          battery_level: c.battery_level,
+          odometer_km: p.odometer,
+          outside_temp: c.outside_temp
+        },
+        order_by: [asc: c.date]
+
+    query = stats_date_filter(query, :date, opts)
+    %{points: Repo.all(query)}
+  end
+
+  def stats_charge_level(car_id, opts \\ []) do
+    query =
+      from p in Position,
+        where: p.car_id == ^car_id and not is_nil(p.battery_level),
+        select: %{
+          date: p.date,
+          battery_level: p.battery_level,
+          usable_battery_level: p.usable_battery_level
+        },
+        order_by: [desc: p.date],
+        limit: 1000
+
+    query = stats_date_filter(query, :date, opts)
+    points = Repo.all(query) |> Enum.reverse()
+
+    current =
+      case List.last(points) do
+        nil -> nil
+        p -> p.battery_level
+      end
+
+    %{current: current, points: points}
+  end
+
+  def stats_vampire_drain(car_id, opts \\ []) do
+    min_idle_hours = Keyword.get(opts, :min_idle_hours, 1)
+
+    # Find idle periods (state = asleep or online without driving/charging)
+    query =
+      from s in State,
+        where: s.car_id == ^car_id and s.state in [:asleep, :online] and
+               not is_nil(s.end_date) and
+               fragment("EXTRACT(epoch FROM (? - ?)) / 3600", s.end_date, s.start_date) > ^min_idle_hours,
+        select: %{
+          date: s.start_date,
+          start_date: s.start_date,
+          end_date: s.end_date,
+          duration_hours: fragment("EXTRACT(epoch FROM (? - ?)) / 3600", s.end_date, s.start_date)
+        },
+        order_by: [desc: s.start_date],
+        limit: 200
+
+    query = stats_date_filter(query, :start_date, opts)
+    idle_periods = Repo.all(query)
+
+    points =
+      Enum.map(idle_periods, fn period ->
+        start_pos =
+          from(p in Position,
+            where: p.car_id == ^car_id and p.date >= ^period.start_date and not is_nil(p.battery_level),
+            order_by: [asc: p.date],
+            limit: 1
+          )
+          |> Repo.one()
+
+        end_pos =
+          from(p in Position,
+            where: p.car_id == ^car_id and p.date <= ^period.end_date and not is_nil(p.battery_level),
+            order_by: [desc: p.date],
+            limit: 1
+          )
+          |> Repo.one()
+
+        case {start_pos, end_pos} do
+          {%{battery_level: sl} = sp, %{battery_level: el} = ep} when not is_nil(sl) and not is_nil(el) and sl > el ->
+            loss = sl - el
+            hours = period.duration_hours
+            # Compute range values if available
+            start_range = sp |> Map.get(:rated_battery_range_km)
+            end_range = ep |> Map.get(:rated_battery_range_km)
+            range_diff = if start_range && end_range, do: start_range - end_range, else: nil
+            outside_temp = sp |> Map.get(:outside_temp)
+            # Standby percentage: time in this state vs total period
+            total_seconds = hours * 3600
+            avg_power = if hours > 0 && range_diff, do: range_diff * 1000 / hours, else: nil
+
+            %{
+              date: period.start_date,
+              start_date: period.start_date,
+              end_date: period.end_date,
+              start_level: sl,
+              end_level: el,
+              duration_hours: hours,
+              loss_per_hour: if(hours > 0, do: loss / hours, else: 0),
+              start_range_km: start_range,
+              end_range_km: end_range,
+              range_diff_km: range_diff,
+              avg_power_watts: avg_power,
+              standby_percentage: if(sl > 0, do: loss / sl * 100, else: 0),
+              outside_temp: outside_temp
+            }
+
+          _ ->
+            nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    avg =
+      case points do
+        [] -> nil
+        pts -> Enum.sum(Enum.map(pts, & &1.loss_per_hour)) / length(pts)
+      end
+
+    %{avg_loss_per_hour: avg, points: points}
+  end
+
+  def stats_drives(car_id, opts \\ []) do
+    bucket = Keyword.get(opts, :bucket, "month")
+
+    base_query =
+      from d in Drive,
+        where: d.car_id == ^car_id and not is_nil(d.end_date)
+
+    base_query = stats_date_filter(base_query, :start_date, opts)
+
+    totals_query =
+      from d in base_query,
+        select: %{
+          total_drives: count(d.id),
+          total_distance_km: sum(d.distance),
+          total_duration_min: sum(d.duration_min),
+          total_energy_kwh: fragment("SUM(? - ?)", d.start_rated_range_km, d.end_rated_range_km),
+          avg_speed: fragment("CASE WHEN SUM(?) > 0 THEN SUM(?) / (SUM(?) / 60.0) END", d.duration_min, d.distance, d.duration_min)
+        }
+
+    totals = Repo.one(totals_query) || %{total_drives: 0, total_distance_km: nil, total_duration_min: 0, total_energy_kwh: nil, avg_speed: nil}
+
+    buckets_query =
+      from d in base_query,
+        select: %{
+          period: fragment("date_trunc(?, ?)", ^bucket, d.start_date),
+          count: count(d.id),
+          distance_km: sum(d.distance),
+          duration_min: sum(d.duration_min),
+          energy_kwh: fragment("SUM(? - ?)", d.start_rated_range_km, d.end_rated_range_km)
+        },
+        group_by: fragment("date_trunc(?, ?)", ^bucket, d.start_date),
+        order_by: fragment("date_trunc(?, ?)", ^bucket, d.start_date)
+
+    buckets = Repo.all(buckets_query)
+
+    %{totals: totals, buckets: buckets}
+  end
+
+  def stats_efficiency(car_id, opts \\ []) do
+    query =
+      from d in Drive,
+        where: d.car_id == ^car_id and not is_nil(d.end_date) and d.distance > 0 and
+               not is_nil(d.start_rated_range_km) and not is_nil(d.end_rated_range_km),
+        select: %{
+          date: d.start_date,
+          distance_km: d.distance,
+          energy_kwh: fragment("? - ?", d.start_rated_range_km, d.end_rated_range_km),
+          efficiency_wh_km: fragment("CASE WHEN ? > 0 THEN (? - ?) * 1000.0 / ? END",
+            d.distance, d.start_rated_range_km, d.end_rated_range_km, d.distance),
+          outside_temp_avg: d.outside_temp_avg,
+          speed_avg: fragment("CASE WHEN ? > 0 THEN ? / (? / 60.0) END",
+            d.duration_min, d.distance, d.duration_min)
+        },
+        order_by: [asc: d.start_date]
+
+    query = stats_date_filter(query, :start_date, opts)
+    points = Repo.all(query)
+
+    avg =
+      case points do
+        [] -> nil
+        pts ->
+          total_energy = Enum.sum(Enum.map(pts, fn p -> (p.energy_kwh || 0) end))
+          total_dist = Enum.sum(Enum.map(pts, fn p -> (p.distance_km || 0) end))
+          if total_dist > 0, do: total_energy * 1000 / total_dist, else: nil
+      end
+
+    # Rated efficiency from car settings
+    rated_efficiency =
+      case Repo.one(from c in Car, where: c.id == ^car_id, select: c.efficiency) do
+        nil -> nil
+        eff -> eff * 1000  # Convert kWh/km to Wh/km
+      end
+
+    # Net consumption (actual energy used from wall to wheel)
+    net_consumption =
+      case points do
+        [] -> nil
+        pts ->
+          total_dist = Enum.sum(Enum.map(pts, fn p -> (p.distance_km || 0) end))
+          total_energy_kwh = Enum.sum(Enum.map(pts, fn p -> (p.energy_kwh || 0) end))
+          if total_dist > 0, do: total_energy_kwh * 1000 / total_dist, else: nil
+      end
+
+    # Temperature buckets: group drives by 5°C bins
+    temp_buckets =
+      points
+      |> Enum.filter(fn p -> p.outside_temp_avg != nil end)
+      |> Enum.group_by(fn p ->
+        temp = if is_struct(p.outside_temp_avg, Decimal), do: Decimal.to_float(p.outside_temp_avg), else: p.outside_temp_avg
+        Float.floor(temp / 5) * 5
+      end)
+      |> Enum.map(fn {bucket_temp, drives} ->
+        count = length(drives)
+        avg_eff = Enum.sum(Enum.map(drives, fn d -> (d.efficiency_wh_km || 0) end)) / count
+        avg_speed = Enum.sum(Enum.map(drives, fn d -> (d.speed_avg || 0) end)) / count
+        total_dist = Enum.sum(Enum.map(drives, fn d -> (d.distance_km || 0) end))
+        %{
+          temp_bucket: bucket_temp,
+          count: count,
+          avg_efficiency: avg_eff,
+          avg_speed: avg_speed,
+          total_distance_km: total_dist
+        }
+      end)
+      |> Enum.sort_by(& &1.temp_bucket)
+
+    %{
+      avg_efficiency: avg,
+      rated_efficiency: rated_efficiency,
+      net_consumption_wh_km: net_consumption,
+      temperature_buckets: temp_buckets,
+      points: points
+    }
+  end
+
+  def stats_mileage(car_id, opts \\ []) do
+    bucket = Keyword.get(opts, :bucket, "month")
+
+    base_query =
+      from d in Drive,
+        where: d.car_id == ^car_id and not is_nil(d.end_date)
+
+    base_query = stats_date_filter(base_query, :start_date, opts)
+
+    buckets_query =
+      from d in base_query,
+        select: %{
+          period: fragment("date_trunc(?, ?)", ^bucket, d.start_date),
+          distance_km: sum(d.distance)
+        },
+        group_by: fragment("date_trunc(?, ?)", ^bucket, d.start_date),
+        order_by: fragment("date_trunc(?, ?)", ^bucket, d.start_date)
+
+    buckets = Repo.all(buckets_query)
+
+    # Calculate cumulative totals
+    {buckets_with_cumulative, _} =
+      Enum.map_reduce(buckets, 0, fn b, acc ->
+        cumulative = acc + (b.distance_km || 0)
+        {Map.put(b, :cumulative_km, cumulative), cumulative}
+      end)
+
+    odometer =
+      from(p in Position,
+        where: p.car_id == ^car_id and not is_nil(p.odometer),
+        order_by: [desc: p.date],
+        limit: 1,
+        select: p.odometer
+      )
+      |> Repo.one()
+
+    %{current_odometer: odometer, buckets: buckets_with_cumulative}
+  end
+
+  def stats_visited_heatmap(car_id, opts \\ []) do
+    cell = 0.01
+
+    query =
+      from p in Position,
+        where: p.car_id == ^car_id and not is_nil(p.latitude) and not is_nil(p.longitude),
+        select: %{
+          latitude: fragment("round(?::numeric / ? , 0) * ?", p.latitude, ^cell, ^cell),
+          longitude: fragment("round(?::numeric / ? , 0) * ?", p.longitude, ^cell, ^cell),
+          count: count(p.id)
+        },
+        group_by: [
+          fragment("round(?::numeric / ? , 0) * ?", p.latitude, ^cell, ^cell),
+          fragment("round(?::numeric / ? , 0) * ?", p.longitude, ^cell, ^cell)
+        ],
+        having: count(p.id) > 1
+
+    query = stats_date_filter(query, :date, opts)
+    Repo.all(query)
+  end
+
+  def stats_visited_routes(car_id, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 50)
+
+    query =
+      from d in Drive,
+        where: d.car_id == ^car_id and not is_nil(d.end_date) and
+               not is_nil(d.start_address_id) and not is_nil(d.end_address_id),
+        preload: [:start_address, :end_address],
+        select: %{
+          drive_id: d.id,
+          start_address_id: d.start_address_id,
+          end_address_id: d.end_address_id
+        },
+        order_by: [desc: d.start_date],
+        limit: ^limit
+
+    query = stats_date_filter(query, :start_date, opts)
+    drives = Repo.all(query) |> Repo.preload([:start_address, :end_address])
+
+    # Group by route (start→end address pair)
+    drives
+    |> Enum.group_by(fn d -> {d.start_address_id, d.end_address_id} end)
+    |> Enum.map(fn {{_sa, _ea}, drives_group} ->
+      first = List.first(drives_group)
+      %{
+        drive_id: first.id,
+        start_address: first.start_address,
+        end_address: first.end_address,
+        count: length(drives_group),
+        total_distance_km: Enum.sum(Enum.map(drives_group, fn d -> d.distance || 0 end))
+      }
+    end)
+    |> Enum.sort_by(& &1.count, :desc)
+    |> Enum.take(limit)
+  end
+
+  def stats_visited_places(car_id, opts \\ []) do
+    # Places visited: addresses from drives and charges
+    drive_addresses =
+      from d in Drive,
+        where: d.car_id == ^car_id and not is_nil(d.end_date) and not is_nil(d.end_address_id),
+        select: %{address_id: d.end_address_id, geofence_id: d.end_geofence_id}
+
+    drive_addresses = stats_date_filter(drive_addresses, :start_date, opts)
+
+    charge_addresses =
+      from cp in ChargingProcess,
+        where: cp.car_id == ^car_id and not is_nil(cp.end_date) and not is_nil(cp.address_id),
+        select: %{address_id: cp.address_id, geofence_id: cp.geofence_id}
+
+    charge_addresses = stats_date_filter(charge_addresses, :start_date, opts)
+
+    drive_counts =
+      from(d in subquery(drive_addresses),
+        group_by: [d.address_id, d.geofence_id],
+        select: %{address_id: d.address_id, geofence_id: d.geofence_id, count: count()}
+      )
+      |> Repo.all()
+
+    charge_counts =
+      from(c in subquery(charge_addresses),
+        group_by: [c.address_id, c.geofence_id],
+        select: %{address_id: c.address_id, geofence_id: c.geofence_id, count: count()}
+      )
+      |> Repo.all()
+
+    # Merge drive and charge counts
+    all_places =
+      (drive_counts ++ charge_counts)
+      |> Enum.group_by(& &1.address_id)
+      |> Enum.map(fn {address_id, entries} ->
+        visit_count = Enum.sum(for e <- entries, do: e.count)
+        charge_count = Enum.sum(for e <- charge_counts, e.address_id == address_id, do: e.count)
+        geofence_id = Enum.find_value(entries, & &1.geofence_id)
+
+        address = Repo.get(TeslaMate.Locations.Address, address_id)
+        geofence = if geofence_id, do: Repo.get(TeslaMate.Locations.GeoFence, geofence_id)
+
+        %{
+          address: address,
+          geofence: geofence,
+          visit_count: visit_count,
+          charge_count: charge_count,
+          latitude: if(address, do: address.latitude),
+          longitude: if(address, do: address.longitude)
+        }
+      end)
+      |> Enum.sort_by(& &1.visit_count, :desc)
+      |> Enum.take(100)
+
+    all_places
+  end
+
+  def stats_charging(car_id, opts \\ []) do
+    bucket = Keyword.get(opts, :bucket, "month")
+
+    base_query =
+      from cp in ChargingProcess,
+        where: cp.car_id == ^car_id and not is_nil(cp.end_date)
+
+    base_query = stats_date_filter(base_query, :start_date, opts)
+
+    totals_query =
+      from cp in base_query,
+        select: %{
+          total_energy_kwh: sum(cp.charge_energy_added),
+          total_cost: sum(cp.cost),
+          total_sessions: count(cp.id),
+          avg_energy_kwh: avg(cp.charge_energy_added),
+          ac_sessions: fragment("COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ? AND c.fast_charger_present = true))", cp.id),
+          dc_sessions: fragment("COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ? AND c.fast_charger_present = true))", cp.id),
+          ac_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE NOT EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp),
+          dc_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp),
+          ac_duration_min: fragment("SUM(EXTRACT(epoch FROM (?.end_date - ?.start_date)) / 60) FILTER (WHERE NOT EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp, cp),
+          dc_duration_min: fragment("SUM(EXTRACT(epoch FROM (?.end_date - ?.start_date)) / 60) FILTER (WHERE EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp, cp)
+        }
+
+    totals = Repo.one(totals_query) || %{total_energy_kwh: nil, total_cost: nil, total_sessions: 0, avg_energy_kwh: nil, ac_sessions: 0, dc_sessions: 0, ac_energy_kwh: nil, dc_energy_kwh: nil, ac_duration_min: nil, dc_duration_min: nil}
+
+    buckets_query =
+      from cp in base_query,
+        select: %{
+          period: fragment("date_trunc(?, ?)", ^bucket, cp.start_date),
+          energy_kwh: sum(cp.charge_energy_added),
+          cost: sum(cp.cost),
+          sessions: count(cp.id),
+          ac_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE NOT EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp),
+          dc_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp)
+        },
+        group_by: fragment("date_trunc(?, ?)", ^bucket, cp.start_date),
+        order_by: fragment("date_trunc(?, ?)", ^bucket, cp.start_date)
+
+    buckets = Repo.all(buckets_query)
+
+    %{totals: totals, buckets: buckets}
+  end
+
+  def stats_top_charging_stations(car_id, opts \\ []) do
+    query =
+      from cp in ChargingProcess,
+        join: a in Address, on: cp.address_id == a.id,
+        where: cp.car_id == ^car_id and not is_nil(cp.end_date),
+        group_by: [a.id, a.display_name, a.city, a.country, a.latitude, a.longitude],
+        select: %{
+          address_id: a.id,
+          display_name: a.display_name,
+          city: a.city,
+          country: a.country,
+          latitude: a.latitude,
+          longitude: a.longitude,
+          sessions: count(cp.id),
+          total_energy_kwh: sum(cp.charge_energy_added),
+          total_cost: sum(cp.cost)
+        },
+        order_by: [desc: count(cp.id)],
+        limit: 20
+
+    query = stats_date_filter(query, :start_date, opts)
+    Repo.all(query)
+  end
+
+  def stats_dc_curve(car_id, opts \\ []) do
+    query =
+      from c in Charge,
+        join: cp in ChargingProcess, on: c.charging_process_id == cp.id,
+        where: cp.car_id == ^car_id and c.fast_charger_present == true and c.charger_power > 0,
+        select: %{
+          battery_level: c.battery_level,
+          charger_power: c.charger_power,
+          charge_energy_added: c.charge_energy_added,
+          charger_voltage: c.charger_voltage,
+          outside_temp: c.outside_temp
+        },
+        order_by: [asc: c.battery_level]
+
+    query = stats_date_filter(query, :date, opts)
+    Repo.all(query)
+  end
+
+  def stats_states(car_id, opts \\ []) do
+    query =
+      from s in State,
+        where: s.car_id == ^car_id and not is_nil(s.end_date),
+        select: %{
+          state: s.state,
+          start_date: s.start_date,
+          end_date: s.end_date,
+          duration_min: fragment("round(EXTRACT(epoch FROM (? - ?)) / 60)::integer", s.end_date, s.start_date)
+        },
+        order_by: [desc: s.start_date],
+        limit: 500
+
+    query = stats_date_filter(query, :start_date, opts)
+    Repo.all(query)
+  end
+
+  def stats_timeline(car_id, opts \\ []) do
+    page = Keyword.get(opts, :page, 1)
+    per_page = Keyword.get(opts, :per_page, 50) |> min(100)
+    offset = (page - 1) * per_page
+    search = Keyword.get(opts, :search)
+
+    # Drives
+    drives_query =
+      from d in Drive,
+        where: d.car_id == ^car_id and not is_nil(d.end_date),
+        preload: [:start_address, :end_address, :start_geofence, :end_geofence],
+        select: %{type: "drive", id: d.id, start_date: d.start_date, end_date: d.end_date,
+                  distance: d.distance, start_address_id: d.start_address_id, end_address_id: d.end_address_id}
+
+    drives_query = stats_date_filter(drives_query, :start_date, opts)
+    drives = Repo.all(drives_query) |> Repo.preload([:start_address, :end_address])
+
+    drive_entries =
+      Enum.map(drives, fn d ->
+        start_name = if(d.start_address, do: d.start_address.display_name, else: "Unknown")
+        end_name = if(d.end_address, do: d.end_address.display_name, else: "Unknown")
+        %{
+          type: "drive",
+          id: d.id,
+          start_date: d.start_date,
+          end_date: d.end_date,
+          title: "#{start_name} → #{end_name}",
+          subtitle: if(d.distance, do: "#{Float.round(d.distance * 1.0, 1)} km", else: nil),
+          distance_km: d.distance,
+          energy_kwh: if(d.start_rated_range_km && d.end_rated_range_km, do: d.start_rated_range_km - d.end_rated_range_km, else: nil),
+          start_soc: d.start_battery_level,
+          end_soc: d.end_battery_level,
+          outside_temp: d.outside_temp_avg
+        }
+      end)
+
+    # Charges
+    charges_query =
+      from cp in ChargingProcess,
+        where: cp.car_id == ^car_id and not is_nil(cp.end_date),
+        preload: [:address, :geofence]
+
+    charges_query = stats_date_filter(charges_query, :start_date, opts)
+    charges = Repo.all(charges_query)
+
+    charge_entries =
+      Enum.map(charges, fn cp ->
+        location = cond do
+          cp.geofence -> cp.geofence.name
+          cp.address -> cp.address.display_name
+          true -> "Unknown"
+        end
+        %{
+          type: "charge",
+          id: cp.id,
+          start_date: cp.start_date,
+          end_date: cp.end_date,
+          title: location,
+          subtitle: if(cp.charge_energy_added, do: "#{Decimal.to_float(cp.charge_energy_added) |> Float.round(1)} kWh", else: nil),
+          energy_added_kwh: cp.charge_energy_added,
+          cost: cp.cost,
+          address: location,
+          start_soc: cp.start_battery_level,
+          end_soc: cp.end_battery_level
+        }
+      end)
+
+    # Updates
+    updates_query =
+      from u in Update,
+        where: u.car_id == ^car_id and not is_nil(u.end_date)
+
+    updates_query = stats_date_filter(updates_query, :start_date, opts)
+    updates_list = Repo.all(updates_query)
+
+    update_entries =
+      Enum.map(updates_list, fn u ->
+        %{
+          type: "update",
+          id: u.id,
+          start_date: u.start_date,
+          end_date: u.end_date,
+          title: "Software Update",
+          subtitle: u.version
+        }
+      end)
+
+    # Combine and sort all events
+    all_events =
+      (drive_entries ++ charge_entries ++ update_entries)
+      |> Enum.sort_by(& &1.start_date, {:desc, DateTime})
+
+    # Generate parking events from gaps between consecutive events
+    sorted_asc = Enum.reverse(all_events)
+    parking_entries =
+      sorted_asc
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.flat_map(fn [prev, next] ->
+        if prev.end_date && next.start_date do
+          gap_seconds = DateTime.diff(next.start_date, prev.end_date)
+          if gap_seconds > 300 do
+            [%{
+              type: "parking",
+              id: nil,
+              start_date: prev.end_date,
+              end_date: next.start_date,
+              title: "Parked",
+              subtitle: format_duration_seconds(gap_seconds)
+            }]
+          else
+            []
+          end
+        else
+          []
+        end
+      end)
+
+    all_with_parking =
+      (all_events ++ parking_entries)
+      |> Enum.sort_by(& &1.start_date, {:desc, DateTime})
+
+    # Apply search filter if provided
+    filtered =
+      case search do
+        nil -> all_with_parking
+        "" -> all_with_parking
+        term ->
+          search_lower = String.downcase(term)
+          Enum.filter(all_with_parking, fn entry ->
+            title = String.downcase(entry.title || "")
+            subtitle = String.downcase(entry[:subtitle] || "")
+            address = String.downcase(to_string(entry[:address] || ""))
+            String.contains?(title, search_lower) ||
+              String.contains?(subtitle, search_lower) ||
+              String.contains?(address, search_lower)
+          end)
+      end
+
+    total = length(filtered)
+    paginated = filtered |> Enum.drop(offset) |> Enum.take(per_page)
+
+    %{entries: paginated, page: page, per_page: per_page, total: total}
+  end
+
+  defp format_duration_seconds(seconds) when seconds >= 86400 do
+    days = div(seconds, 86400)
+    hours = div(rem(seconds, 86400), 3600)
+    "#{days}d #{hours}h"
+  end
+  defp format_duration_seconds(seconds) when seconds >= 3600 do
+    hours = div(seconds, 3600)
+    mins = div(rem(seconds, 3600), 60)
+    "#{hours}h #{mins}m"
+  end
+  defp format_duration_seconds(seconds) do
+    "#{div(seconds, 60)}m"
+  end
+
+  def stats_updates(car_id, opts \\ []) do
+    query =
+      from u in Update,
+        where: u.car_id == ^car_id and not is_nil(u.end_date),
+        select: %{
+          version: u.version,
+          start_date: u.start_date,
+          end_date: u.end_date
+        },
+        order_by: [desc: u.start_date]
+
+    query = stats_date_filter(query, :start_date, opts)
+    Repo.all(query)
+  end
+
+  def stats_statistics(car_id, opts \\ []) do
+    bucket = Keyword.get(opts, :bucket, "month")
+
+    base_drives =
+      from d in Drive,
+        where: d.car_id == ^car_id and not is_nil(d.end_date) and d.distance > 0
+
+    base_drives = stats_date_filter(base_drives, :start_date, opts)
+
+    base_charges =
+      from cp in ChargingProcess,
+        where: cp.car_id == ^car_id and not is_nil(cp.end_date)
+
+    base_charges = stats_date_filter(base_charges, :start_date, opts)
+
+    # Bucketed drive stats
+    drive_buckets =
+      from d in base_drives,
+        select: %{
+          period: fragment("date_trunc(?, ?)", ^bucket, d.start_date),
+          time_driven_min: sum(d.duration_min),
+          distance_km: sum(d.distance),
+          avg_temp: avg(d.outside_temp_avg),
+          avg_speed: fragment("CASE WHEN SUM(?) > 0 THEN SUM(?) / (SUM(?) / 60.0) END",
+            d.duration_min, d.distance, d.duration_min),
+          energy_kwh: fragment("SUM(? - ?)", d.start_rated_range_km, d.end_rated_range_km),
+          drives: count(d.id),
+          gross_consumption_wh_km: fragment("CASE WHEN SUM(?) > 0 THEN SUM(? - ?) * 1000.0 / SUM(?) END",
+            d.distance, d.start_rated_range_km, d.end_rated_range_km, d.distance)
+        },
+        group_by: fragment("date_trunc(?, ?)", ^bucket, d.start_date),
+        order_by: fragment("date_trunc(?, ?)", ^bucket, d.start_date)
+
+    drive_data = Repo.all(drive_buckets)
+
+    # Bucketed charge stats
+    charge_buckets =
+      from cp in base_charges,
+        select: %{
+          period: fragment("date_trunc(?, ?)", ^bucket, cp.start_date),
+          charges: count(cp.id),
+          energy_added_kwh: sum(cp.charge_energy_added),
+          total_cost: sum(cp.cost)
+        },
+        group_by: fragment("date_trunc(?, ?)", ^bucket, cp.start_date),
+        order_by: fragment("date_trunc(?, ?)", ^bucket, cp.start_date)
+
+    charge_data = Repo.all(charge_buckets)
+
+    # Merge drive and charge buckets by period
+    charge_map = Map.new(charge_data, fn c -> {c.period, c} end)
+
+    buckets =
+      Enum.map(drive_data, fn d ->
+        c = Map.get(charge_map, d.period, %{charges: 0, energy_added_kwh: nil, total_cost: nil})
+        total_cost = c[:total_cost]
+        energy_added = c[:energy_added_kwh]
+        distance = d.distance_km
+
+        cost_per_kwh = if total_cost && energy_added && energy_added > 0, do: total_cost / energy_added, else: nil
+        cost_per_100km = if total_cost && distance && distance > 0, do: total_cost / distance * 100, else: nil
+
+        %{
+          period: d.period,
+          time_driven_min: d.time_driven_min,
+          distance_km: d.distance_km,
+          avg_temp: d.avg_temp,
+          avg_speed: d.avg_speed,
+          efficiency_wh_km: d.gross_consumption_wh_km,
+          energy_kwh: d.energy_kwh,
+          drives: d.drives,
+          charges: c[:charges] || 0,
+          energy_added_kwh: energy_added,
+          total_cost: total_cost,
+          cost_per_kwh: cost_per_kwh,
+          cost_per_100km: cost_per_100km
+        }
+      end)
+
+    %{buckets: buckets}
+  end
 end

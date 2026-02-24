@@ -1,20 +1,24 @@
 import Foundation
 import SwiftUI
 
+@MainActor
 @Observable
 class AppState {
     var isAuthenticated = false
-    var selectedCar: Car? {
-        didSet {
-            if let id = selectedCar?.id {
-                UserDefaults.standard.set(id, forKey: "selectedCarId")
+    var selectedCar: Car?
+    var cars: [Car] = []
+    var connectionStatus: ConnectionStatus = .disconnected
+
+    var defaultCarId: Int? {
+        get { UserDefaults.standard.object(forKey: "defaultCarId") as? Int }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: "defaultCarId")
             } else {
-                UserDefaults.standard.removeObject(forKey: "selectedCarId")
+                UserDefaults.standard.removeObject(forKey: "defaultCarId")
             }
         }
     }
-    var cars: [Car] = []
-    var connectionStatus: ConnectionStatus = .disconnected
 
     enum ConnectionStatus {
         case connected
@@ -50,8 +54,7 @@ class AppState {
         do {
             cars = try await APIClient.shared.getCars()
             if selectedCar == nil {
-                let savedId = UserDefaults.standard.object(forKey: "selectedCarId") as? Int
-                if let savedId, let saved = cars.first(where: { $0.id == savedId }) {
+                if let savedId = defaultCarId, let saved = cars.first(where: { $0.id == savedId }) {
                     selectedCar = saved
                 } else if let first = cars.first {
                     selectedCar = first

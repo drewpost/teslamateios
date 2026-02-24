@@ -75,9 +75,10 @@ struct SettingsView: View {
                     }
 
                     if !appState.cars.isEmpty {
-                        Section("Vehicle") {
+                        Section("Default Vehicle") {
                             ForEach(appState.cars) { car in
                                 Button {
+                                    appState.defaultCarId = car.id
                                     appState.selectedCar = car
                                 } label: {
                                     HStack {

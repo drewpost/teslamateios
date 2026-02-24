@@ -137,6 +137,93 @@ actor APIClient {
         let response: DataResponse<ChargeDetailResponse> = try await request(.charge(id: id))
         return response.data
     }
+
+    // MARK: - Stats Endpoints
+
+    func getBatteryHealth(carId: Int, from: String? = nil, to: String? = nil) async throws -> BatteryHealthResponse {
+        let response: DataResponse<BatteryHealthResponse> = try await request(.batteryHealth(carId: carId, from: from, to: to))
+        return response.data
+    }
+
+    func getProjectedRange(carId: Int, from: String? = nil, to: String? = nil) async throws -> ProjectedRangeResponse {
+        let response: DataResponse<ProjectedRangeResponse> = try await request(.projectedRange(carId: carId, from: from, to: to))
+        return response.data
+    }
+
+    func getChargeLevel(carId: Int, from: String? = nil, to: String? = nil) async throws -> ChargeLevelResponse {
+        let response: DataResponse<ChargeLevelResponse> = try await request(.chargeLevel(carId: carId, from: from, to: to))
+        return response.data
+    }
+
+    func getVampireDrain(carId: Int, from: String? = nil, to: String? = nil, minIdleHours: Int? = nil) async throws -> VampireDrainResponse {
+        let response: DataResponse<VampireDrainResponse> = try await request(.vampireDrain(carId: carId, from: from, to: to, minIdleHours: minIdleHours))
+        return response.data
+    }
+
+    func getDriveStats(carId: Int, from: String? = nil, to: String? = nil, bucket: String? = nil) async throws -> DriveStatsResponse {
+        let response: DataResponse<DriveStatsResponse> = try await request(.driveStats(carId: carId, from: from, to: to, bucket: bucket))
+        return response.data
+    }
+
+    func getEfficiency(carId: Int, from: String? = nil, to: String? = nil) async throws -> EfficiencyResponse {
+        let response: DataResponse<EfficiencyResponse> = try await request(.efficiency(carId: carId, from: from, to: to))
+        return response.data
+    }
+
+    func getMileage(carId: Int, from: String? = nil, to: String? = nil, bucket: String? = nil) async throws -> MileageResponse {
+        let response: DataResponse<MileageResponse> = try await request(.mileage(carId: carId, from: from, to: to, bucket: bucket))
+        return response.data
+    }
+
+    func getVisitedHeatmap(carId: Int, from: String? = nil, to: String? = nil) async throws -> [HeatmapPoint] {
+        let response: DataResponse<[HeatmapPoint]> = try await request(.visitedHeatmap(carId: carId, from: from, to: to))
+        return response.data
+    }
+
+    func getVisitedRoutes(carId: Int, from: String? = nil, to: String? = nil, limit: Int? = nil) async throws -> [VisitedRoute] {
+        let response: DataResponse<[VisitedRoute]> = try await request(.visitedRoutes(carId: carId, from: from, to: to, limit: limit))
+        return response.data
+    }
+
+    func getVisitedPlaces(carId: Int, from: String? = nil, to: String? = nil) async throws -> [VisitedPlace] {
+        let response: DataResponse<[VisitedPlace]> = try await request(.visitedPlaces(carId: carId, from: from, to: to))
+        return response.data
+    }
+
+    func getChargingStats(carId: Int, from: String? = nil, to: String? = nil, bucket: String? = nil) async throws -> ChargingStatsResponse {
+        let response: DataResponse<ChargingStatsResponse> = try await request(.chargingStats(carId: carId, from: from, to: to, bucket: bucket))
+        return response.data
+    }
+
+    func getTopChargingStations(carId: Int, from: String? = nil, to: String? = nil) async throws -> [TopChargingStation] {
+        let response: DataResponse<[TopChargingStation]> = try await request(.topChargingStations(carId: carId, from: from, to: to))
+        return response.data
+    }
+
+    func getDcCurve(carId: Int, from: String? = nil, to: String? = nil) async throws -> [DCCurvePoint] {
+        let response: DataResponse<[DCCurvePoint]> = try await request(.dcCurve(carId: carId, from: from, to: to))
+        return response.data
+    }
+
+    func getStatistics(carId: Int, from: String? = nil, to: String? = nil, bucket: String? = nil) async throws -> StatisticsResponse {
+        let response: DataResponse<StatisticsResponse> = try await request(.statistics(carId: carId, from: from, to: to, bucket: bucket))
+        return response.data
+    }
+
+    func getStates(carId: Int, from: String? = nil, to: String? = nil) async throws -> [StateEntry] {
+        let response: DataResponse<[StateEntry]> = try await request(.states(carId: carId, from: from, to: to))
+        return response.data
+    }
+
+    func getTimeline(carId: Int, from: String? = nil, to: String? = nil, page: Int = 1, perPage: Int = 50, search: String? = nil) async throws -> TimelineResponse {
+        let response: DataResponse<TimelineResponse> = try await request(.timeline(carId: carId, from: from, to: to, page: page, perPage: perPage, search: search))
+        return response.data
+    }
+
+    func getUpdates(carId: Int, from: String? = nil, to: String? = nil) async throws -> [UpdateEntry] {
+        let response: DataResponse<[UpdateEntry]> = try await request(.updates(carId: carId, from: from, to: to))
+        return response.data
+    }
 }
 
 struct DriveWithPositions: Codable {

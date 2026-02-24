@@ -2,16 +2,21 @@ import SwiftUI
 import MapKit
 
 struct OverviewView: View {
-    let carId: Int
     @Environment(AppState.self) private var appState
     @Environment(UnitPreference.self) private var unitPreference
     @State private var viewModel = OverviewViewModel()
     @State private var cameraPosition: MapCameraPosition = .automatic
+    @State private var listeningCarId: Int?
+
+    private var carId: Int? { appState.selectedCar?.id }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                if let summary = viewModel.summary {
+                if carId == nil {
+                    ProgressView("Loading...")
+                        .padding(.top, 100)
+                } else if let summary = viewModel.summary {
                     VStack(spacing: 16) {
                         // Vehicle Header
                         VStack(spacing: 4) {
@@ -119,7 +124,9 @@ struct OverviewView: View {
                         Text(error)
                             .multilineTextAlignment(.center)
                         Button("Retry") {
-                            Task { await viewModel.refresh(carId: carId) }
+                            if let carId {
+                                Task { await viewModel.refresh(carId: carId) }
+                            }
                         }
                         .buttonStyle(.bordered)
                     }
@@ -127,14 +134,30 @@ struct OverviewView: View {
                 }
             }
             .refreshable {
-                await viewModel.refresh(carId: carId)
+                if let carId {
+                    await viewModel.refresh(carId: carId)
+                }
             }
             .navigationTitle("Overview")
-            .task {
-                await viewModel.startListening(carId: carId)
+            .carSwitcherToolbar()
+            .onChange(of: carId) { _, newCarId in
+                if let newCarId, newCarId != listeningCarId {
+                    listeningCarId = newCarId
+                    Task {
+                        await viewModel.stopListening()
+                        await viewModel.startListening(carId: newCarId)
+                    }
+                }
+            }
+            .onAppear {
+                if let carId, listeningCarId != carId {
+                    listeningCarId = carId
+                    Task { await viewModel.startListening(carId: carId) }
+                }
             }
             .onDisappear {
                 Task { await viewModel.stopListening() }
+                listeningCarId = nil
             }
         }
     }

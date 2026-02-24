@@ -59,6 +59,21 @@ class UnitPreference {
         return "\(meters)m"
     }
 
+    func formatDistanceShort(_ km: Double) -> String {
+        if useMiles {
+            let mi = km * 0.621371
+            return mi >= 1000 ? String(format: "%.0f mi", mi) : String(format: "%.1f mi", mi)
+        }
+        return km >= 1000 ? String(format: "%.0f km", km) : String(format: "%.1f km", km)
+    }
+
+    func formatSpeed(_ kph: Double) -> String {
+        if useMiles {
+            return String(format: "%.0f mph", kph * 0.621371)
+        }
+        return String(format: "%.0f km/h", kph)
+    }
+
     var distanceUnit: String { useMiles ? "mi" : "km" }
     var speedUnit: String { useMiles ? "mph" : "km/h" }
     var temperatureUnit: String { useFahrenheit ? "°F" : "°C" }

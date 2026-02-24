@@ -13,6 +13,25 @@ enum Endpoint {
     case charge(id: Int)
     case positions(carId: Int, page: Int, perPage: Int)
 
+    // Stats endpoints
+    case batteryHealth(carId: Int, from: String?, to: String?)
+    case projectedRange(carId: Int, from: String?, to: String?)
+    case chargeLevel(carId: Int, from: String?, to: String?)
+    case vampireDrain(carId: Int, from: String?, to: String?, minIdleHours: Int?)
+    case driveStats(carId: Int, from: String?, to: String?, bucket: String?)
+    case efficiency(carId: Int, from: String?, to: String?)
+    case mileage(carId: Int, from: String?, to: String?, bucket: String?)
+    case visitedHeatmap(carId: Int, from: String?, to: String?)
+    case visitedRoutes(carId: Int, from: String?, to: String?, limit: Int?)
+    case visitedPlaces(carId: Int, from: String?, to: String?)
+    case chargingStats(carId: Int, from: String?, to: String?, bucket: String?)
+    case dcCurve(carId: Int, from: String?, to: String?)
+    case topChargingStations(carId: Int, from: String?, to: String?)
+    case statistics(carId: Int, from: String?, to: String?, bucket: String?)
+    case states(carId: Int, from: String?, to: String?)
+    case timeline(carId: Int, from: String?, to: String?, page: Int, perPage: Int, search: String?)
+    case updates(carId: Int, from: String?, to: String?)
+
     var path: String {
         switch self {
         case .login:
@@ -37,6 +56,42 @@ enum Endpoint {
             return "/api/v1/charges/\(id)"
         case .positions(let carId, let page, let perPage):
             return "/api/v1/cars/\(carId)/positions?page=\(page)&per_page=\(perPage)"
+        case .batteryHealth(let carId, let from, let to):
+            return "/api/v1/cars/\(carId)/stats/battery_health" + dateQuery(from: from, to: to)
+        case .projectedRange(let carId, let from, let to):
+            return "/api/v1/cars/\(carId)/stats/projected_range" + dateQuery(from: from, to: to)
+        case .chargeLevel(let carId, let from, let to):
+            return "/api/v1/cars/\(carId)/stats/charge_level" + dateQuery(from: from, to: to)
+        case .vampireDrain(let carId, let from, let to, let minIdleHours):
+            return "/api/v1/cars/\(carId)/stats/vampire_drain" + dateQuery(from: from, to: to, extra: minIdleHours.map { ["min_idle_hours": "\($0)"] })
+        case .driveStats(let carId, let from, let to, let bucket):
+            return "/api/v1/cars/\(carId)/stats/drives" + dateQuery(from: from, to: to, extra: bucket.map { ["bucket": $0] })
+        case .efficiency(let carId, let from, let to):
+            return "/api/v1/cars/\(carId)/stats/efficiency" + dateQuery(from: from, to: to)
+        case .mileage(let carId, let from, let to, let bucket):
+            return "/api/v1/cars/\(carId)/stats/mileage" + dateQuery(from: from, to: to, extra: bucket.map { ["bucket": $0] })
+        case .visitedHeatmap(let carId, let from, let to):
+            return "/api/v1/cars/\(carId)/stats/visited/heatmap" + dateQuery(from: from, to: to)
+        case .visitedRoutes(let carId, let from, let to, let limit):
+            return "/api/v1/cars/\(carId)/stats/visited/routes" + dateQuery(from: from, to: to, extra: limit.map { ["limit": "\($0)"] })
+        case .visitedPlaces(let carId, let from, let to):
+            return "/api/v1/cars/\(carId)/stats/visited/places" + dateQuery(from: from, to: to)
+        case .chargingStats(let carId, let from, let to, let bucket):
+            return "/api/v1/cars/\(carId)/stats/charging" + dateQuery(from: from, to: to, extra: bucket.map { ["bucket": $0] })
+        case .dcCurve(let carId, let from, let to):
+            return "/api/v1/cars/\(carId)/stats/charging/dc_curve" + dateQuery(from: from, to: to)
+        case .topChargingStations(let carId, let from, let to):
+            return "/api/v1/cars/\(carId)/stats/charging/top_stations" + dateQuery(from: from, to: to)
+        case .statistics(let carId, let from, let to, let bucket):
+            return "/api/v1/cars/\(carId)/stats/statistics" + dateQuery(from: from, to: to, extra: bucket.map { ["bucket": $0] })
+        case .states(let carId, let from, let to):
+            return "/api/v1/cars/\(carId)/states" + dateQuery(from: from, to: to)
+        case .timeline(let carId, let from, let to, let page, let perPage, let search):
+            var extra = ["page": "\(page)", "per_page": "\(perPage)"]
+            if let search, !search.isEmpty { extra["search"] = search }
+            return "/api/v1/cars/\(carId)/timeline" + dateQuery(from: from, to: to, extra: extra)
+        case .updates(let carId, let from, let to):
+            return "/api/v1/cars/\(carId)/updates" + dateQuery(from: from, to: to)
         }
     }
 
@@ -51,5 +106,17 @@ enum Endpoint {
 
     func url(baseURL: String) -> URL? {
         URL(string: baseURL + path)
+    }
+
+    private func dateQuery(from: String? = nil, to: String? = nil, extra: [String: String]? = nil) -> String {
+        var params: [String] = []
+        if let from { params.append("from=\(from)") }
+        if let to { params.append("to=\(to)") }
+        if let extra {
+            for (key, value) in extra {
+                params.append("\(key)=\(value)")
+            }
+        }
+        return params.isEmpty ? "" : "?" + params.joined(separator: "&")
     }
 }

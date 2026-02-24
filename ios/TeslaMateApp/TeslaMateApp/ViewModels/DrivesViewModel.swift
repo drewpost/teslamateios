@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 @Observable
 class DrivesViewModel {
     var drives: [Drive] = []
@@ -9,6 +10,30 @@ class DrivesViewModel {
 
     private var currentPage = 1
     private let perPage = 20
+    private var loadTask: Task<Void, Never>?
+
+    func reset() {
+        loadTask?.cancel()
+        loadTask = nil
+        drives = []
+        isLoading = false
+        error = nil
+        hasMore = true
+        currentPage = 1
+    }
+
+    /// Fire-and-forget load (unstructured task, survives view lifecycle changes)
+    func load(carId: Int) {
+        loadTask?.cancel()
+        isLoading = false
+        loadTask = Task { await loadDrives(carId: carId) }
+    }
+
+    /// Fire-and-forget load more
+    func loadMoreIfNeeded(carId: Int) {
+        guard !isLoading, hasMore else { return }
+        Task { await loadMore(carId: carId) }
+    }
 
     func loadDrives(carId: Int) async {
         guard !isLoading else { return }
@@ -19,16 +44,16 @@ class DrivesViewModel {
 
         do {
             let response = try await APIClient.shared.getDrives(carId: carId, page: 1, perPage: perPage)
-            await MainActor.run {
+            if !Task.isCancelled {
                 self.drives = response.data
                 self.hasMore = response.data.count >= self.perPage
                 self.isLoading = false
             }
+        } catch is CancellationError {
+            self.isLoading = false
         } catch {
-            await MainActor.run {
-                self.error = error.localizedDescription
-                self.isLoading = false
-            }
+            self.error = error.localizedDescription
+            self.isLoading = false
         }
     }
 
@@ -40,17 +65,18 @@ class DrivesViewModel {
 
         do {
             let response = try await APIClient.shared.getDrives(carId: carId, page: currentPage, perPage: perPage)
-            await MainActor.run {
+            if !Task.isCancelled {
                 self.drives.append(contentsOf: response.data)
                 self.hasMore = response.data.count >= self.perPage
                 self.isLoading = false
             }
+        } catch is CancellationError {
+            self.currentPage -= 1
+            self.isLoading = false
         } catch {
-            await MainActor.run {
-                self.currentPage -= 1
-                self.error = error.localizedDescription
-                self.isLoading = false
-            }
+            self.currentPage -= 1
+            self.error = error.localizedDescription
+            self.isLoading = false
         }
     }
 }

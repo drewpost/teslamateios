@@ -82,6 +82,25 @@ defmodule TeslaMateWeb.Router do
       get "/drives/:id", DriveController, :show
       get "/drives/:id/gpx", DriveController, :gpx
       get "/charges/:id", ChargeController, :show
+
+      # Stats endpoints
+      get "/cars/:car_id/stats/battery_health", StatsController, :battery_health
+      get "/cars/:car_id/stats/projected_range", StatsController, :projected_range
+      get "/cars/:car_id/stats/charge_level", StatsController, :charge_level
+      get "/cars/:car_id/stats/vampire_drain", StatsController, :vampire_drain
+      get "/cars/:car_id/stats/drives", StatsController, :drives
+      get "/cars/:car_id/stats/efficiency", StatsController, :efficiency
+      get "/cars/:car_id/stats/mileage", StatsController, :mileage
+      get "/cars/:car_id/stats/visited/heatmap", StatsController, :visited_heatmap
+      get "/cars/:car_id/stats/visited/routes", StatsController, :visited_routes
+      get "/cars/:car_id/stats/visited/places", StatsController, :visited_places
+      get "/cars/:car_id/stats/charging", StatsController, :charging
+      get "/cars/:car_id/stats/charging/top_stations", StatsController, :top_charging_stations
+      get "/cars/:car_id/stats/charging/dc_curve", StatsController, :dc_curve
+      get "/cars/:car_id/stats/statistics", StatsController, :statistics
+      get "/cars/:car_id/states", StatsController, :states
+      get "/cars/:car_id/timeline", StatsController, :timeline
+      get "/cars/:car_id/updates", StatsController, :updates
     end
   end
 

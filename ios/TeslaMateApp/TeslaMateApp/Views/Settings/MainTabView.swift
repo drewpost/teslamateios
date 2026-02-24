@@ -1,45 +1,27 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @Environment(AppState.self) private var appState
-
     var body: some View {
         TabView {
-            Group {
-                if let car = appState.selectedCar {
-                    OverviewView(carId: car.id)
-                        .id(car.id)
-                } else {
-                    ProgressView("Loading...")
+            OverviewView()
+                .tabItem {
+                    Label("Overview", systemImage: "car.fill")
                 }
-            }
-            .tabItem {
-                Label("Overview", systemImage: "car.fill")
-            }
 
-            Group {
-                if let car = appState.selectedCar {
-                    DrivesListView(carId: car.id)
-                        .id(car.id)
-                } else {
-                    ProgressView("Loading...")
+            DrivesListView()
+                .tabItem {
+                    Label("Drives", systemImage: "road.lanes")
                 }
-            }
-            .tabItem {
-                Label("Drives", systemImage: "road.lanes")
-            }
 
-            Group {
-                if let car = appState.selectedCar {
-                    ChargesListView(carId: car.id)
-                        .id(car.id)
-                } else {
-                    ProgressView("Loading...")
+            ChargesListView()
+                .tabItem {
+                    Label("Charges", systemImage: "bolt.fill")
                 }
-            }
-            .tabItem {
-                Label("Charges", systemImage: "bolt.fill")
-            }
+
+            InsightsHomeView()
+                .tabItem {
+                    Label("Insights", systemImage: "chart.xyaxis.line")
+                }
 
             SettingsView()
                 .tabItem {
