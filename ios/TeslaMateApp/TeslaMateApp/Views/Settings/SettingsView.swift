@@ -84,7 +84,7 @@ struct SettingsView: View {
                                     HStack {
                                         Text(car.displayName)
                                         Spacer()
-                                        if appState.defaultCarId == car.id {
+                                        if appState.selectedCar?.id == car.id {
                                             Image(systemName: "checkmark")
                                                 .foregroundColor(.accentColor)
                                         }
