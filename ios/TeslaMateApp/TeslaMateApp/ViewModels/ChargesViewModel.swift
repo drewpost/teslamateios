@@ -12,9 +12,20 @@ class ChargesViewModel {
     private let perPage = 20
     private var loadTask: Task<Void, Never>?
 
+    func reset() {
+        loadTask?.cancel()
+        loadTask = nil
+        charges = []
+        isLoading = false
+        error = nil
+        hasMore = true
+        currentPage = 1
+    }
+
     /// Fire-and-forget load (unstructured task, survives view lifecycle changes)
     func load(carId: Int) {
         loadTask?.cancel()
+        isLoading = false
         loadTask = Task { await loadCharges(carId: carId) }
     }
 
@@ -39,7 +50,7 @@ class ChargesViewModel {
                 self.isLoading = false
             }
         } catch is CancellationError {
-            // Task was cancelled, don't update state
+            self.isLoading = false
         } catch {
             self.error = error.localizedDescription
             self.isLoading = false
@@ -61,6 +72,7 @@ class ChargesViewModel {
             }
         } catch is CancellationError {
             self.currentPage -= 1
+            self.isLoading = false
         } catch {
             self.currentPage -= 1
             self.error = error.localizedDescription

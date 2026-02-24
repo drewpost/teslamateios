@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct InsightsHomeView: View {
-    let carId: Int
+    @Environment(AppState.self) private var appState
+
+    private var carId: Int? { appState.selectedCar?.id }
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -10,29 +12,35 @@ struct InsightsHomeView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    ForEach(InsightSection.allCases) { section in
-                        VStack(alignment: .leading, spacing: 12) {
-                            Label(section.rawValue, systemImage: section.icon)
-                                .font(.title3.bold())
-                                .padding(.horizontal)
+            Group {
+                if let carId {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) {
+                            ForEach(InsightSection.allCases) { section in
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Label(section.rawValue, systemImage: section.icon)
+                                        .font(.title3.bold())
+                                        .padding(.horizontal)
 
-                            LazyVGrid(columns: columns, spacing: 12) {
-                                ForEach(InsightScreen.screens(for: section)) { screen in
-                                    NavigationLink {
-                                        insightDestination(for: screen)
-                                    } label: {
-                                        InsightCardView(screen: screen)
+                                    LazyVGrid(columns: columns, spacing: 12) {
+                                        ForEach(InsightScreen.screens(for: section)) { screen in
+                                            NavigationLink {
+                                                insightDestination(for: screen, carId: carId)
+                                            } label: {
+                                                InsightCardView(screen: screen)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
                                     }
-                                    .buttonStyle(.plain)
+                                    .padding(.horizontal)
                                 }
                             }
-                            .padding(.horizontal)
                         }
+                        .padding(.vertical)
                     }
+                } else {
+                    ProgressView("Loading...")
                 }
-                .padding(.vertical)
             }
             .navigationTitle("Insights")
             .carSwitcherToolbar()
@@ -40,7 +48,7 @@ struct InsightsHomeView: View {
     }
 
     @ViewBuilder
-    private func insightDestination(for screen: InsightScreen) -> some View {
+    private func insightDestination(for screen: InsightScreen, carId: Int) -> some View {
         switch screen {
         case .batteryHealth: BatteryHealthView(carId: carId)
         case .projectedRange: ProjectedRangeView(carId: carId)

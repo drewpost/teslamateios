@@ -75,25 +75,21 @@ struct SidebarNavigationView: View {
             }
             .navigationTitle("TeslaMate")
         } detail: {
-            if let car = appState.selectedCar {
-                switch selection {
-                case .overview, .none:
-                    OverviewView(carId: car.id)
-                        .id(car.id)
-                case .drives:
-                    DrivesListView(carId: car.id)
-                        .id(car.id)
-                case .charges:
-                    ChargesListView(carId: car.id)
-                        .id(car.id)
-                case .insight(let screen):
-                    insightView(for: screen, carId: car.id)
-                        .id(car.id)
-                case .settings:
-                    SettingsView()
+            switch selection {
+            case .overview, .none:
+                OverviewView()
+            case .drives:
+                DrivesListView()
+            case .charges:
+                ChargesListView()
+            case .insight(let screen):
+                if let carId = appState.selectedCar?.id {
+                    insightView(for: screen, carId: carId)
+                } else {
+                    ProgressView("Loading...")
                 }
-            } else {
-                ProgressView("Loading...")
+            case .settings:
+                SettingsView()
             }
         }
     }
