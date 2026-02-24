@@ -10,6 +10,19 @@ class ChargesViewModel {
 
     private var currentPage = 1
     private let perPage = 20
+    private var loadTask: Task<Void, Never>?
+
+    /// Fire-and-forget load (unstructured task, survives view lifecycle changes)
+    func load(carId: Int) {
+        loadTask?.cancel()
+        loadTask = Task { await loadCharges(carId: carId) }
+    }
+
+    /// Fire-and-forget load more
+    func loadMoreIfNeeded(carId: Int) {
+        guard !isLoading, hasMore else { return }
+        Task { await loadMore(carId: carId) }
+    }
 
     func loadCharges(carId: Int) async {
         guard !isLoading else { return }
@@ -20,9 +33,13 @@ class ChargesViewModel {
 
         do {
             let response = try await APIClient.shared.getCharges(carId: carId, page: 1, perPage: perPage)
-            self.charges = response.data
-            self.hasMore = response.data.count >= self.perPage
-            self.isLoading = false
+            if !Task.isCancelled {
+                self.charges = response.data
+                self.hasMore = response.data.count >= self.perPage
+                self.isLoading = false
+            }
+        } catch is CancellationError {
+            // Task was cancelled, don't update state
         } catch {
             self.error = error.localizedDescription
             self.isLoading = false
@@ -37,9 +54,13 @@ class ChargesViewModel {
 
         do {
             let response = try await APIClient.shared.getCharges(carId: carId, page: currentPage, perPage: perPage)
-            self.charges.append(contentsOf: response.data)
-            self.hasMore = response.data.count >= self.perPage
-            self.isLoading = false
+            if !Task.isCancelled {
+                self.charges.append(contentsOf: response.data)
+                self.hasMore = response.data.count >= self.perPage
+                self.isLoading = false
+            }
+        } catch is CancellationError {
+            self.currentPage -= 1
         } catch {
             self.currentPage -= 1
             self.error = error.localizedDescription

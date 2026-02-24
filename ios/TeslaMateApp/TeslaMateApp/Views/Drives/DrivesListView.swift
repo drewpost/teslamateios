@@ -16,7 +16,8 @@ struct DrivesListView: View {
                         Text(error)
                     } actions: {
                         Button("Retry") {
-                            Task { await viewModel.loadDrives(carId: carId) }
+                            viewModel.error = nil
+                            viewModel.load(carId: carId)
                         }
                         .buttonStyle(.bordered)
                     }
@@ -34,7 +35,7 @@ struct DrivesListView: View {
                             }
                             .onAppear {
                                 if drive.id == viewModel.drives.last?.id {
-                                    Task { await viewModel.loadMore(carId: carId) }
+                                    viewModel.loadMoreIfNeeded(carId: carId)
                                 }
                             }
                         }
@@ -54,9 +55,9 @@ struct DrivesListView: View {
             }
             .navigationTitle("Drives")
             .carSwitcherToolbar()
-            .task {
-                if viewModel.drives.isEmpty {
-                    await viewModel.loadDrives(carId: carId)
+            .onAppear {
+                if viewModel.drives.isEmpty && !viewModel.isLoading {
+                    viewModel.load(carId: carId)
                 }
             }
         }
