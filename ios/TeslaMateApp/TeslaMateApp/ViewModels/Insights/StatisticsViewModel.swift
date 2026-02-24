@@ -3,19 +3,15 @@ import Foundation
 @MainActor
 @Observable
 class StatisticsViewModel {
-    var driveStats: DriveStatsResponse?
-    var chargingStats: ChargingStatsResponse?
+    var data: StatisticsResponse?
     var isLoading = false
     var error: String?
 
-    func load(carId: Int) async {
+    func load(carId: Int, from: String? = nil, to: String? = nil, bucket: String? = nil) async {
         isLoading = true
         error = nil
         do {
-            async let d = APIClient.shared.getDriveStats(carId: carId)
-            async let c = APIClient.shared.getChargingStats(carId: carId)
-            driveStats = try await d
-            chargingStats = try await c
+            data = try await APIClient.shared.getStatistics(carId: carId, from: from, to: to, bucket: bucket)
         } catch {
             self.error = error.localizedDescription
         }

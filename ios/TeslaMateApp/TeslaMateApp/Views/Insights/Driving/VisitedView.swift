@@ -6,6 +6,7 @@ struct VisitedView: View {
     @State private var viewModel = VisitedViewModel()
     @State private var mode: VisitedViewModel.VisitedMode = .places
     @State private var cameraPosition: MapCameraPosition = .automatic
+    @Environment(UnitPreference.self) private var unitPreference
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -35,6 +36,28 @@ struct VisitedView: View {
             }
 
             VStack(spacing: 0) {
+                // Summary stats bar
+                if viewModel.driveStats != nil || viewModel.chargingStats != nil {
+                    HStack(spacing: 16) {
+                        if let dist = viewModel.driveStats?.totals.totalDistanceKm {
+                            Label(unitPreference.formatDistanceShort(dist), systemImage: "road.lanes")
+                                .font(.caption.weight(.medium))
+                        }
+                        if let energy = viewModel.chargingStats?.totals.totalEnergyKwh {
+                            Label(String(format: "%.0f kWh", energy), systemImage: "bolt.fill")
+                                .font(.caption.weight(.medium))
+                        }
+                        if let cost = viewModel.chargingStats?.totals.totalCost, cost > 0 {
+                            Label(String(format: "$%.0f", cost), systemImage: "dollarsign.circle")
+                                .font(.caption.weight(.medium))
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(.ultraThinMaterial)
+                }
+
                 Picker("Mode", selection: $mode) {
                     ForEach(VisitedViewModel.VisitedMode.allCases) { m in
                         Text(m.rawValue).tag(m)

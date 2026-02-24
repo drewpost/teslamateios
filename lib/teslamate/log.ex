@@ -900,20 +900,63 @@ defmodule TeslaMate.Log do
         p -> p.soh_estimate
       end
 
-    %{current_soh: current_soh, points: points}
+    # Summary stats from charging processes
+    summary_query =
+      from cp in ChargingProcess,
+        where: cp.car_id == ^car_id and not is_nil(cp.charge_energy_added),
+        select: %{
+          total_charges: count(cp.id),
+          total_energy_added: sum(cp.charge_energy_added),
+          ac_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE NOT EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp),
+          dc_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp)
+        }
+
+    summary_query = stats_date_filter(summary_query, :start_date, opts)
+    summary = Repo.one(summary_query) || %{total_charges: 0, total_energy_added: nil, ac_energy_kwh: nil, dc_energy_kwh: nil}
+
+    # Usable capacity: avg rated range from last 10 charges to 100%
+    capacity_query =
+      from c in Charge,
+        join: cp in ChargingProcess, on: c.charging_process_id == cp.id,
+        where: cp.car_id == ^car_id and c.battery_level == 100 and not is_nil(c.rated_battery_range_km),
+        select: c.rated_battery_range_km,
+        order_by: [desc: c.date],
+        limit: 10
+
+    recent_ranges = Repo.all(capacity_query)
+    usable_capacity_kwh =
+      case recent_ranges do
+        [] -> nil
+        ranges ->
+          avg_range = Enum.reduce(ranges, Decimal.new(0), &Decimal.add/2) |> Decimal.div(length(ranges))
+          avg_range
+      end
+
+    %{
+      current_soh: current_soh,
+      points: points,
+      total_charges: summary.total_charges,
+      total_energy_added: summary.total_energy_added,
+      ac_energy_kwh: summary.ac_energy_kwh,
+      dc_energy_kwh: summary.dc_energy_kwh,
+      usable_capacity_km: usable_capacity_kwh
+    }
   end
 
   def stats_projected_range(car_id, opts \\ []) do
     query =
       from c in Charge,
         join: cp in ChargingProcess, on: c.charging_process_id == cp.id,
+        left_join: p in Position, on: p.id == cp.position_id,
         where: cp.car_id == ^car_id and c.battery_level == 100 and
                not is_nil(c.rated_battery_range_km) and not is_nil(c.ideal_battery_range_km),
         select: %{
           date: c.date,
           rated_range_km: c.rated_battery_range_km,
           ideal_range_km: c.ideal_battery_range_km,
-          battery_level: c.battery_level
+          battery_level: c.battery_level,
+          odometer_km: p.odometer,
+          outside_temp: c.outside_temp
         },
         order_by: [asc: c.date]
 
@@ -946,13 +989,14 @@ defmodule TeslaMate.Log do
   end
 
   def stats_vampire_drain(car_id, opts \\ []) do
+    min_idle_hours = Keyword.get(opts, :min_idle_hours, 1)
+
     # Find idle periods (state = asleep or online without driving/charging)
-    # by looking at consecutive positions with decreasing battery
     query =
       from s in State,
         where: s.car_id == ^car_id and s.state in [:asleep, :online] and
                not is_nil(s.end_date) and
-               fragment("EXTRACT(epoch FROM (? - ?)) / 3600", s.end_date, s.start_date) > 1,
+               fragment("EXTRACT(epoch FROM (? - ?)) / 3600", s.end_date, s.start_date) > ^min_idle_hours,
         select: %{
           date: s.start_date,
           start_date: s.start_date,
@@ -984,15 +1028,32 @@ defmodule TeslaMate.Log do
           |> Repo.one()
 
         case {start_pos, end_pos} do
-          {%{battery_level: sl}, %{battery_level: el}} when not is_nil(sl) and not is_nil(el) and sl > el ->
+          {%{battery_level: sl} = sp, %{battery_level: el} = ep} when not is_nil(sl) and not is_nil(el) and sl > el ->
             loss = sl - el
             hours = period.duration_hours
+            # Compute range values if available
+            start_range = sp |> Map.get(:rated_battery_range_km)
+            end_range = ep |> Map.get(:rated_battery_range_km)
+            range_diff = if start_range && end_range, do: start_range - end_range, else: nil
+            outside_temp = sp |> Map.get(:outside_temp)
+            # Standby percentage: time in this state vs total period
+            total_seconds = hours * 3600
+            avg_power = if hours > 0 && range_diff, do: range_diff * 1000 / hours, else: nil
+
             %{
               date: period.start_date,
+              start_date: period.start_date,
+              end_date: period.end_date,
               start_level: sl,
               end_level: el,
               duration_hours: hours,
-              loss_per_hour: if(hours > 0, do: loss / hours, else: 0)
+              loss_per_hour: if(hours > 0, do: loss / hours, else: 0),
+              start_range_km: start_range,
+              end_range_km: end_range,
+              range_diff_km: range_diff,
+              avg_power_watts: avg_power,
+              standby_percentage: if(sl > 0, do: loss / sl * 100, else: 0),
+              outside_temp: outside_temp
             }
 
           _ ->
@@ -1077,7 +1138,53 @@ defmodule TeslaMate.Log do
           if total_dist > 0, do: total_energy * 1000 / total_dist, else: nil
       end
 
-    %{avg_efficiency: avg, points: points}
+    # Rated efficiency from car settings
+    rated_efficiency =
+      case Repo.one(from c in Car, where: c.id == ^car_id, select: c.efficiency) do
+        nil -> nil
+        eff -> eff * 1000  # Convert kWh/km to Wh/km
+      end
+
+    # Net consumption (actual energy used from wall to wheel)
+    net_consumption =
+      case points do
+        [] -> nil
+        pts ->
+          total_dist = Enum.sum(Enum.map(pts, fn p -> (p.distance_km || 0) end))
+          total_energy_kwh = Enum.sum(Enum.map(pts, fn p -> (p.energy_kwh || 0) end))
+          if total_dist > 0, do: total_energy_kwh * 1000 / total_dist, else: nil
+      end
+
+    # Temperature buckets: group drives by 5°C bins
+    temp_buckets =
+      points
+      |> Enum.filter(fn p -> p.outside_temp_avg != nil end)
+      |> Enum.group_by(fn p ->
+        temp = if is_struct(p.outside_temp_avg, Decimal), do: Decimal.to_float(p.outside_temp_avg), else: p.outside_temp_avg
+        Float.floor(temp / 5) * 5
+      end)
+      |> Enum.map(fn {bucket_temp, drives} ->
+        count = length(drives)
+        avg_eff = Enum.sum(Enum.map(drives, fn d -> (d.efficiency_wh_km || 0) end)) / count
+        avg_speed = Enum.sum(Enum.map(drives, fn d -> (d.speed_avg || 0) end)) / count
+        total_dist = Enum.sum(Enum.map(drives, fn d -> (d.distance_km || 0) end))
+        %{
+          temp_bucket: bucket_temp,
+          count: count,
+          avg_efficiency: avg_eff,
+          avg_speed: avg_speed,
+          total_distance_km: total_dist
+        }
+      end)
+      |> Enum.sort_by(& &1.temp_bucket)
+
+    %{
+      avg_efficiency: avg,
+      rated_efficiency: rated_efficiency,
+      net_consumption_wh_km: net_consumption,
+      temperature_buckets: temp_buckets,
+      points: points
+    }
   end
 
   def stats_mileage(car_id, opts \\ []) do
@@ -1250,10 +1357,14 @@ defmodule TeslaMate.Log do
           total_sessions: count(cp.id),
           avg_energy_kwh: avg(cp.charge_energy_added),
           ac_sessions: fragment("COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ? AND c.fast_charger_present = true))", cp.id),
-          dc_sessions: fragment("COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ? AND c.fast_charger_present = true))", cp.id)
+          dc_sessions: fragment("COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ? AND c.fast_charger_present = true))", cp.id),
+          ac_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE NOT EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp),
+          dc_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp),
+          ac_duration_min: fragment("SUM(EXTRACT(epoch FROM (?.end_date - ?.start_date)) / 60) FILTER (WHERE NOT EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp, cp),
+          dc_duration_min: fragment("SUM(EXTRACT(epoch FROM (?.end_date - ?.start_date)) / 60) FILTER (WHERE EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp, cp)
         }
 
-    totals = Repo.one(totals_query) || %{total_energy_kwh: nil, total_cost: nil, total_sessions: 0, avg_energy_kwh: nil, ac_sessions: 0, dc_sessions: 0}
+    totals = Repo.one(totals_query) || %{total_energy_kwh: nil, total_cost: nil, total_sessions: 0, avg_energy_kwh: nil, ac_sessions: 0, dc_sessions: 0, ac_energy_kwh: nil, dc_energy_kwh: nil, ac_duration_min: nil, dc_duration_min: nil}
 
     buckets_query =
       from cp in base_query,
@@ -1262,8 +1373,8 @@ defmodule TeslaMate.Log do
           energy_kwh: sum(cp.charge_energy_added),
           cost: sum(cp.cost),
           sessions: count(cp.id),
-          ac_energy_kwh: sum(cp.charge_energy_added),
-          dc_energy_kwh: fragment("0")
+          ac_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE NOT EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp),
+          dc_energy_kwh: fragment("SUM(?.charge_energy_added) FILTER (WHERE EXISTS (SELECT 1 FROM charges c WHERE c.charging_process_id = ?.id AND c.fast_charger_present = true))", cp, cp)
         },
         group_by: fragment("date_trunc(?, ?)", ^bucket, cp.start_date),
         order_by: fragment("date_trunc(?, ?)", ^bucket, cp.start_date)
@@ -1271,6 +1382,30 @@ defmodule TeslaMate.Log do
     buckets = Repo.all(buckets_query)
 
     %{totals: totals, buckets: buckets}
+  end
+
+  def stats_top_charging_stations(car_id, opts \\ []) do
+    query =
+      from cp in ChargingProcess,
+        join: a in Address, on: cp.address_id == a.id,
+        where: cp.car_id == ^car_id and not is_nil(cp.end_date),
+        group_by: [a.id, a.display_name, a.city, a.country, a.latitude, a.longitude],
+        select: %{
+          address_id: a.id,
+          display_name: a.display_name,
+          city: a.city,
+          country: a.country,
+          latitude: a.latitude,
+          longitude: a.longitude,
+          sessions: count(cp.id),
+          total_energy_kwh: sum(cp.charge_energy_added),
+          total_cost: sum(cp.cost)
+        },
+        order_by: [desc: count(cp.id)],
+        limit: 20
+
+    query = stats_date_filter(query, :start_date, opts)
+    Repo.all(query)
   end
 
   def stats_dc_curve(car_id, opts \\ []) do
@@ -1312,6 +1447,7 @@ defmodule TeslaMate.Log do
     page = Keyword.get(opts, :page, 1)
     per_page = Keyword.get(opts, :per_page, 50) |> min(100)
     offset = (page - 1) * per_page
+    search = Keyword.get(opts, :search)
 
     # Drives
     drives_query =
@@ -1334,7 +1470,12 @@ defmodule TeslaMate.Log do
           start_date: d.start_date,
           end_date: d.end_date,
           title: "#{start_name} → #{end_name}",
-          subtitle: if(d.distance, do: "#{Float.round(d.distance * 1.0, 1)} km", else: nil)
+          subtitle: if(d.distance, do: "#{Float.round(d.distance * 1.0, 1)} km", else: nil),
+          distance_km: d.distance,
+          energy_kwh: if(d.start_rated_range_km && d.end_rated_range_km, do: d.start_rated_range_km - d.end_rated_range_km, else: nil),
+          start_soc: d.start_battery_level,
+          end_soc: d.end_battery_level,
+          outside_temp: d.outside_temp_avg
         }
       end)
 
@@ -1360,7 +1501,12 @@ defmodule TeslaMate.Log do
           start_date: cp.start_date,
           end_date: cp.end_date,
           title: location,
-          subtitle: if(cp.charge_energy_added, do: "#{Decimal.to_float(cp.charge_energy_added) |> Float.round(1)} kWh", else: nil)
+          subtitle: if(cp.charge_energy_added, do: "#{Decimal.to_float(cp.charge_energy_added) |> Float.round(1)} kWh", else: nil),
+          energy_added_kwh: cp.charge_energy_added,
+          cost: cp.cost,
+          address: location,
+          start_soc: cp.start_battery_level,
+          end_soc: cp.end_battery_level
         }
       end)
 
@@ -1384,16 +1530,75 @@ defmodule TeslaMate.Log do
         }
       end)
 
-    # Combine, sort, paginate
-    all_entries =
+    # Combine and sort all events
+    all_events =
       (drive_entries ++ charge_entries ++ update_entries)
       |> Enum.sort_by(& &1.start_date, {:desc, DateTime})
-      |> Enum.drop(offset)
-      |> Enum.take(per_page)
 
-    total = length(drive_entries) + length(charge_entries) + length(update_entries)
+    # Generate parking events from gaps between consecutive events
+    sorted_asc = Enum.reverse(all_events)
+    parking_entries =
+      sorted_asc
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.flat_map(fn [prev, next] ->
+        if prev.end_date && next.start_date do
+          gap_seconds = DateTime.diff(next.start_date, prev.end_date)
+          if gap_seconds > 300 do
+            [%{
+              type: "parking",
+              id: nil,
+              start_date: prev.end_date,
+              end_date: next.start_date,
+              title: "Parked",
+              subtitle: format_duration_seconds(gap_seconds)
+            }]
+          else
+            []
+          end
+        else
+          []
+        end
+      end)
 
-    %{entries: all_entries, page: page, per_page: per_page, total: total}
+    all_with_parking =
+      (all_events ++ parking_entries)
+      |> Enum.sort_by(& &1.start_date, {:desc, DateTime})
+
+    # Apply search filter if provided
+    filtered =
+      case search do
+        nil -> all_with_parking
+        "" -> all_with_parking
+        term ->
+          search_lower = String.downcase(term)
+          Enum.filter(all_with_parking, fn entry ->
+            title = String.downcase(entry.title || "")
+            subtitle = String.downcase(entry[:subtitle] || "")
+            address = String.downcase(to_string(entry[:address] || ""))
+            String.contains?(title, search_lower) ||
+              String.contains?(subtitle, search_lower) ||
+              String.contains?(address, search_lower)
+          end)
+      end
+
+    total = length(filtered)
+    paginated = filtered |> Enum.drop(offset) |> Enum.take(per_page)
+
+    %{entries: paginated, page: page, per_page: per_page, total: total}
+  end
+
+  defp format_duration_seconds(seconds) when seconds >= 86400 do
+    days = div(seconds, 86400)
+    hours = div(rem(seconds, 86400), 3600)
+    "#{days}d #{hours}h"
+  end
+  defp format_duration_seconds(seconds) when seconds >= 3600 do
+    hours = div(seconds, 3600)
+    mins = div(rem(seconds, 3600), 60)
+    "#{hours}h #{mins}m"
+  end
+  defp format_duration_seconds(seconds) do
+    "#{div(seconds, 60)}m"
   end
 
   def stats_updates(car_id, opts \\ []) do
@@ -1409,5 +1614,87 @@ defmodule TeslaMate.Log do
 
     query = stats_date_filter(query, :start_date, opts)
     Repo.all(query)
+  end
+
+  def stats_statistics(car_id, opts \\ []) do
+    bucket = Keyword.get(opts, :bucket, "month")
+
+    base_drives =
+      from d in Drive,
+        where: d.car_id == ^car_id and not is_nil(d.end_date) and d.distance > 0
+
+    base_drives = stats_date_filter(base_drives, :start_date, opts)
+
+    base_charges =
+      from cp in ChargingProcess,
+        where: cp.car_id == ^car_id and not is_nil(cp.end_date)
+
+    base_charges = stats_date_filter(base_charges, :start_date, opts)
+
+    # Bucketed drive stats
+    drive_buckets =
+      from d in base_drives,
+        select: %{
+          period: fragment("date_trunc(?, ?)", ^bucket, d.start_date),
+          time_driven_min: sum(d.duration_min),
+          distance_km: sum(d.distance),
+          avg_temp: avg(d.outside_temp_avg),
+          avg_speed: fragment("CASE WHEN SUM(?) > 0 THEN SUM(?) / (SUM(?) / 60.0) END",
+            d.duration_min, d.distance, d.duration_min),
+          energy_kwh: fragment("SUM(? - ?)", d.start_rated_range_km, d.end_rated_range_km),
+          drives: count(d.id),
+          gross_consumption_wh_km: fragment("CASE WHEN SUM(?) > 0 THEN SUM(? - ?) * 1000.0 / SUM(?) END",
+            d.distance, d.start_rated_range_km, d.end_rated_range_km, d.distance)
+        },
+        group_by: fragment("date_trunc(?, ?)", ^bucket, d.start_date),
+        order_by: fragment("date_trunc(?, ?)", ^bucket, d.start_date)
+
+    drive_data = Repo.all(drive_buckets)
+
+    # Bucketed charge stats
+    charge_buckets =
+      from cp in base_charges,
+        select: %{
+          period: fragment("date_trunc(?, ?)", ^bucket, cp.start_date),
+          charges: count(cp.id),
+          energy_added_kwh: sum(cp.charge_energy_added),
+          total_cost: sum(cp.cost)
+        },
+        group_by: fragment("date_trunc(?, ?)", ^bucket, cp.start_date),
+        order_by: fragment("date_trunc(?, ?)", ^bucket, cp.start_date)
+
+    charge_data = Repo.all(charge_buckets)
+
+    # Merge drive and charge buckets by period
+    charge_map = Map.new(charge_data, fn c -> {c.period, c} end)
+
+    buckets =
+      Enum.map(drive_data, fn d ->
+        c = Map.get(charge_map, d.period, %{charges: 0, energy_added_kwh: nil, total_cost: nil})
+        total_cost = c[:total_cost]
+        energy_added = c[:energy_added_kwh]
+        distance = d.distance_km
+
+        cost_per_kwh = if total_cost && energy_added && energy_added > 0, do: total_cost / energy_added, else: nil
+        cost_per_100km = if total_cost && distance && distance > 0, do: total_cost / distance * 100, else: nil
+
+        %{
+          period: d.period,
+          time_driven_min: d.time_driven_min,
+          distance_km: d.distance_km,
+          avg_temp: d.avg_temp,
+          avg_speed: d.avg_speed,
+          efficiency_wh_km: d.gross_consumption_wh_km,
+          energy_kwh: d.energy_kwh,
+          drives: d.drives,
+          charges: c[:charges] || 0,
+          energy_added_kwh: energy_added,
+          total_cost: total_cost,
+          cost_per_kwh: cost_per_kwh,
+          cost_per_100km: cost_per_100km
+        }
+      end)
+
+    %{buckets: buckets}
   end
 end

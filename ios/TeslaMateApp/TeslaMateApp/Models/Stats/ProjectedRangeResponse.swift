@@ -10,4 +10,6 @@ struct ProjectedRangePoint: Codable, Identifiable {
     let ratedRangeKm: Double?
     let idealRangeKm: Double?
     let batteryLevel: Int?
+    let odometerKm: Double?
+    let outsideTemp: Double?
 }

@@ -155,8 +155,8 @@ actor APIClient {
         return response.data
     }
 
-    func getVampireDrain(carId: Int, from: String? = nil, to: String? = nil) async throws -> VampireDrainResponse {
-        let response: DataResponse<VampireDrainResponse> = try await request(.vampireDrain(carId: carId, from: from, to: to))
+    func getVampireDrain(carId: Int, from: String? = nil, to: String? = nil, minIdleHours: Int? = nil) async throws -> VampireDrainResponse {
+        let response: DataResponse<VampireDrainResponse> = try await request(.vampireDrain(carId: carId, from: from, to: to, minIdleHours: minIdleHours))
         return response.data
     }
 
@@ -195,8 +195,18 @@ actor APIClient {
         return response.data
     }
 
+    func getTopChargingStations(carId: Int, from: String? = nil, to: String? = nil) async throws -> [TopChargingStation] {
+        let response: DataResponse<[TopChargingStation]> = try await request(.topChargingStations(carId: carId, from: from, to: to))
+        return response.data
+    }
+
     func getDcCurve(carId: Int, from: String? = nil, to: String? = nil) async throws -> [DCCurvePoint] {
         let response: DataResponse<[DCCurvePoint]> = try await request(.dcCurve(carId: carId, from: from, to: to))
+        return response.data
+    }
+
+    func getStatistics(carId: Int, from: String? = nil, to: String? = nil, bucket: String? = nil) async throws -> StatisticsResponse {
+        let response: DataResponse<StatisticsResponse> = try await request(.statistics(carId: carId, from: from, to: to, bucket: bucket))
         return response.data
     }
 
@@ -205,8 +215,8 @@ actor APIClient {
         return response.data
     }
 
-    func getTimeline(carId: Int, from: String? = nil, to: String? = nil, page: Int = 1, perPage: Int = 50) async throws -> TimelineResponse {
-        let response: DataResponse<TimelineResponse> = try await request(.timeline(carId: carId, from: from, to: to, page: page, perPage: perPage))
+    func getTimeline(carId: Int, from: String? = nil, to: String? = nil, page: Int = 1, perPage: Int = 50, search: String? = nil) async throws -> TimelineResponse {
+        let response: DataResponse<TimelineResponse> = try await request(.timeline(carId: carId, from: from, to: to, page: page, perPage: perPage, search: search))
         return response.data
     }
 

@@ -65,7 +65,8 @@ defmodule TeslaMateWeb.Api.StatsController do
   def vampire_drain(conn, %{"car_id" => car_id} = params) do
     car_id = String.to_integer(car_id)
     {from, to} = parse_date_params(params)
-    data = Log.stats_vampire_drain(car_id, from: from, to: to)
+    min_idle_hours = parse_int(Map.get(params, "min_idle_hours"), 1)
+    data = Log.stats_vampire_drain(car_id, from: from, to: to, min_idle_hours: min_idle_hours)
     json(conn, %{data: StatsJSON.vampire_drain(data)})
   end
 
@@ -129,6 +130,14 @@ defmodule TeslaMateWeb.Api.StatsController do
     json(conn, %{data: StatsJSON.charging(data)})
   end
 
+  # GET /cars/:car_id/stats/charging/top_stations
+  def top_charging_stations(conn, %{"car_id" => car_id} = params) do
+    car_id = String.to_integer(car_id)
+    {from, to} = parse_date_params(params)
+    data = Log.stats_top_charging_stations(car_id, from: from, to: to)
+    json(conn, %{data: StatsJSON.top_charging_stations(data)})
+  end
+
   # GET /cars/:car_id/stats/charging/dc_curve
   def dc_curve(conn, %{"car_id" => car_id} = params) do
     car_id = String.to_integer(car_id)
@@ -151,8 +160,18 @@ defmodule TeslaMateWeb.Api.StatsController do
     {from, to} = parse_date_params(params)
     page = parse_int(Map.get(params, "page"), 1)
     per_page = parse_int(Map.get(params, "per_page"), 50)
-    data = Log.stats_timeline(car_id, from: from, to: to, page: page, per_page: per_page)
+    search = Map.get(params, "search")
+    data = Log.stats_timeline(car_id, from: from, to: to, page: page, per_page: per_page, search: search)
     json(conn, %{data: StatsJSON.timeline(data)})
+  end
+
+  # GET /cars/:car_id/stats/statistics
+  def statistics(conn, %{"car_id" => car_id} = params) do
+    car_id = String.to_integer(car_id)
+    {from, to} = parse_date_params(params)
+    bucket = Map.get(params, "bucket", "month")
+    data = Log.stats_statistics(car_id, from: from, to: to, bucket: bucket)
+    json(conn, %{data: StatsJSON.statistics(data)})
   end
 
   # GET /cars/:car_id/updates

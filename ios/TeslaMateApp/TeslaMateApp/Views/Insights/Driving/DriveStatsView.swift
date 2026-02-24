@@ -19,7 +19,7 @@ struct DriveStatsView: View {
                         .padding(.top, 60)
                 } else if let data = viewModel.data {
                     // Totals
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         StatCardView(
                             value: "\(data.totals.totalDrives ?? 0)",
                             label: "Drives"
@@ -40,6 +40,18 @@ struct DriveStatsView: View {
                             StatCardView(
                                 value: unitPreference.formatSpeed(speed),
                                 label: "Avg Speed"
+                            )
+                        }
+                        if let dur = data.totals.totalDurationMin, let drives = data.totals.totalDrives, drives > 0 {
+                            StatCardView(
+                                value: formatDuration(dur / drives),
+                                label: "Avg Duration"
+                            )
+                        }
+                        if let energy = data.totals.totalEnergyKwh {
+                            StatCardView(
+                                value: String(format: "%.1f kWh", energy),
+                                label: "Total Energy"
                             )
                         }
                     }

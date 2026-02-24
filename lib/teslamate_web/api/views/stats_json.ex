@@ -1,11 +1,16 @@
 defmodule TeslaMateWeb.Api.Views.StatsJSON do
   alias TeslaMate.Locations.{Address, GeoFence}
 
-  def battery_health(%{current_soh: soh, points: points}) do
+  def battery_health(data) do
     %{
-      current_soh: to_float(soh),
+      current_soh: to_float(data.current_soh),
+      total_charges: data[:total_charges] || 0,
+      total_energy_added: to_float(data[:total_energy_added]),
+      ac_energy_kwh: to_float(data[:ac_energy_kwh]),
+      dc_energy_kwh: to_float(data[:dc_energy_kwh]),
+      usable_capacity_km: to_float(data[:usable_capacity_km]),
       points:
-        Enum.map(points, fn p ->
+        Enum.map(data.points, fn p ->
           %{
             date: format_datetime(p.date),
             rated_range_km: to_float(p.rated_range_km),
@@ -24,7 +29,9 @@ defmodule TeslaMateWeb.Api.Views.StatsJSON do
             date: format_datetime(p.date),
             rated_range_km: to_float(p.rated_range_km),
             ideal_range_km: to_float(p.ideal_range_km),
-            battery_level: p.battery_level
+            battery_level: p.battery_level,
+            odometer_km: to_float(p[:odometer_km]),
+            outside_temp: to_float(p[:outside_temp])
           }
         end)
     }
@@ -51,10 +58,18 @@ defmodule TeslaMateWeb.Api.Views.StatsJSON do
         Enum.map(points, fn p ->
           %{
             date: format_datetime(p.date),
+            start_date: format_datetime(p[:start_date] || p.date),
+            end_date: format_datetime(p[:end_date]),
             start_level: p.start_level,
             end_level: p.end_level,
             duration_hours: to_float(p.duration_hours),
-            loss_per_hour: to_float(p.loss_per_hour)
+            loss_per_hour: to_float(p.loss_per_hour),
+            start_range_km: to_float(p[:start_range_km]),
+            end_range_km: to_float(p[:end_range_km]),
+            range_diff_km: to_float(p[:range_diff_km]),
+            avg_power_watts: to_float(p[:avg_power_watts]),
+            standby_percentage: to_float(p[:standby_percentage]),
+            outside_temp: to_float(p[:outside_temp])
           }
         end)
     }
@@ -76,11 +91,23 @@ defmodule TeslaMateWeb.Api.Views.StatsJSON do
     }
   end
 
-  def efficiency(%{avg_efficiency: avg, points: points}) do
+  def efficiency(data) do
     %{
-      avg_efficiency: to_float(avg),
+      avg_efficiency: to_float(data.avg_efficiency),
+      rated_efficiency: to_float(data[:rated_efficiency]),
+      net_consumption_wh_km: to_float(data[:net_consumption_wh_km]),
+      temperature_buckets:
+        Enum.map(data[:temperature_buckets] || [], fn b ->
+          %{
+            temp_bucket: to_float(b.temp_bucket),
+            count: b.count,
+            avg_efficiency: to_float(b.avg_efficiency),
+            avg_speed: to_float(b.avg_speed),
+            total_distance_km: to_float(b.total_distance_km)
+          }
+        end),
       points:
-        Enum.map(points, fn p ->
+        Enum.map(data.points, fn p ->
           %{
             date: format_datetime(p.date),
             distance_km: to_float(p.distance_km),
@@ -150,7 +177,11 @@ defmodule TeslaMateWeb.Api.Views.StatsJSON do
         total_sessions: totals.total_sessions,
         avg_energy_kwh: to_float(totals.avg_energy_kwh),
         ac_sessions: totals.ac_sessions,
-        dc_sessions: totals.dc_sessions
+        dc_sessions: totals.dc_sessions,
+        ac_energy_kwh: to_float(totals[:ac_energy_kwh]),
+        dc_energy_kwh: to_float(totals[:dc_energy_kwh]),
+        ac_duration_min: to_float(totals[:ac_duration_min]),
+        dc_duration_min: to_float(totals[:dc_duration_min])
       },
       buckets:
         Enum.map(buckets, fn b ->
@@ -164,6 +195,22 @@ defmodule TeslaMateWeb.Api.Views.StatsJSON do
           }
         end)
     }
+  end
+
+  def top_charging_stations(stations) do
+    Enum.map(stations, fn s ->
+      %{
+        address_id: s.address_id,
+        display_name: s.display_name,
+        city: s.city,
+        country: s.country,
+        latitude: to_float(s.latitude),
+        longitude: to_float(s.longitude),
+        sessions: s.sessions,
+        total_energy_kwh: to_float(s.total_energy_kwh),
+        total_cost: to_float(s.total_cost)
+      }
+    end)
   end
 
   def dc_curve(points) do
@@ -193,7 +240,7 @@ defmodule TeslaMateWeb.Api.Views.StatsJSON do
     %{
       entries:
         Enum.map(entries, fn e ->
-          %{
+          base = %{
             type: e.type,
             id: e.id,
             start_date: format_datetime(e.start_date),
@@ -201,10 +248,43 @@ defmodule TeslaMateWeb.Api.Views.StatsJSON do
             title: e.title,
             subtitle: e.subtitle
           }
+          # Add enriched fields if present
+          base
+          |> maybe_put(:distance_km, to_float(e[:distance_km]))
+          |> maybe_put(:energy_kwh, to_float(e[:energy_kwh]))
+          |> maybe_put(:energy_added_kwh, to_float(e[:energy_added_kwh]))
+          |> maybe_put(:cost, to_float(e[:cost]))
+          |> maybe_put(:address, e[:address])
+          |> maybe_put(:start_soc, e[:start_soc])
+          |> maybe_put(:end_soc, e[:end_soc])
+          |> maybe_put(:outside_temp, to_float(e[:outside_temp]))
         end),
       page: page,
       per_page: per_page,
       total: total
+    }
+  end
+
+  def statistics(%{buckets: buckets}) do
+    %{
+      buckets:
+        Enum.map(buckets, fn b ->
+          %{
+            period: format_datetime(b.period),
+            time_driven_min: b.time_driven_min,
+            distance_km: to_float(b.distance_km),
+            avg_temp: to_float(b.avg_temp),
+            avg_speed: to_float(b.avg_speed),
+            efficiency_wh_km: to_float(b.efficiency_wh_km),
+            energy_kwh: to_float(b.energy_kwh),
+            drives: b.drives,
+            charges: b.charges,
+            energy_added_kwh: to_float(b.energy_added_kwh),
+            total_cost: to_float(b.total_cost),
+            cost_per_kwh: to_float(b.cost_per_kwh),
+            cost_per_100km: to_float(b.cost_per_100km)
+          }
+        end)
     }
   end
 
@@ -238,6 +318,9 @@ defmodule TeslaMateWeb.Api.Views.StatsJSON do
   defp format_geofence(%GeoFence{} = g), do: %{id: g.id, name: g.name}
   defp format_geofence(%{name: name}), do: %{name: name}
   defp format_geofence(_), do: nil
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp to_float(nil), do: nil
   defp to_float(%Decimal{} = d), do: Decimal.to_float(d)

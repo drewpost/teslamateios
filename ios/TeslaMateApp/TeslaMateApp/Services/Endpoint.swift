@@ -17,7 +17,7 @@ enum Endpoint {
     case batteryHealth(carId: Int, from: String?, to: String?)
     case projectedRange(carId: Int, from: String?, to: String?)
     case chargeLevel(carId: Int, from: String?, to: String?)
-    case vampireDrain(carId: Int, from: String?, to: String?)
+    case vampireDrain(carId: Int, from: String?, to: String?, minIdleHours: Int?)
     case driveStats(carId: Int, from: String?, to: String?, bucket: String?)
     case efficiency(carId: Int, from: String?, to: String?)
     case mileage(carId: Int, from: String?, to: String?, bucket: String?)
@@ -26,8 +26,10 @@ enum Endpoint {
     case visitedPlaces(carId: Int, from: String?, to: String?)
     case chargingStats(carId: Int, from: String?, to: String?, bucket: String?)
     case dcCurve(carId: Int, from: String?, to: String?)
+    case topChargingStations(carId: Int, from: String?, to: String?)
+    case statistics(carId: Int, from: String?, to: String?, bucket: String?)
     case states(carId: Int, from: String?, to: String?)
-    case timeline(carId: Int, from: String?, to: String?, page: Int, perPage: Int)
+    case timeline(carId: Int, from: String?, to: String?, page: Int, perPage: Int, search: String?)
     case updates(carId: Int, from: String?, to: String?)
 
     var path: String {
@@ -60,8 +62,8 @@ enum Endpoint {
             return "/api/v1/cars/\(carId)/stats/projected_range" + dateQuery(from: from, to: to)
         case .chargeLevel(let carId, let from, let to):
             return "/api/v1/cars/\(carId)/stats/charge_level" + dateQuery(from: from, to: to)
-        case .vampireDrain(let carId, let from, let to):
-            return "/api/v1/cars/\(carId)/stats/vampire_drain" + dateQuery(from: from, to: to)
+        case .vampireDrain(let carId, let from, let to, let minIdleHours):
+            return "/api/v1/cars/\(carId)/stats/vampire_drain" + dateQuery(from: from, to: to, extra: minIdleHours.map { ["min_idle_hours": "\($0)"] })
         case .driveStats(let carId, let from, let to, let bucket):
             return "/api/v1/cars/\(carId)/stats/drives" + dateQuery(from: from, to: to, extra: bucket.map { ["bucket": $0] })
         case .efficiency(let carId, let from, let to):
@@ -78,10 +80,16 @@ enum Endpoint {
             return "/api/v1/cars/\(carId)/stats/charging" + dateQuery(from: from, to: to, extra: bucket.map { ["bucket": $0] })
         case .dcCurve(let carId, let from, let to):
             return "/api/v1/cars/\(carId)/stats/charging/dc_curve" + dateQuery(from: from, to: to)
+        case .topChargingStations(let carId, let from, let to):
+            return "/api/v1/cars/\(carId)/stats/charging/top_stations" + dateQuery(from: from, to: to)
+        case .statistics(let carId, let from, let to, let bucket):
+            return "/api/v1/cars/\(carId)/stats/statistics" + dateQuery(from: from, to: to, extra: bucket.map { ["bucket": $0] })
         case .states(let carId, let from, let to):
             return "/api/v1/cars/\(carId)/states" + dateQuery(from: from, to: to)
-        case .timeline(let carId, let from, let to, let page, let perPage):
-            return "/api/v1/cars/\(carId)/timeline" + dateQuery(from: from, to: to, extra: ["page": "\(page)", "per_page": "\(perPage)"])
+        case .timeline(let carId, let from, let to, let page, let perPage, let search):
+            var extra = ["page": "\(page)", "per_page": "\(perPage)"]
+            if let search, !search.isEmpty { extra["search"] = search }
+            return "/api/v1/cars/\(carId)/timeline" + dateQuery(from: from, to: to, extra: extra)
         case .updates(let carId, let from, let to):
             return "/api/v1/cars/\(carId)/updates" + dateQuery(from: from, to: to)
         }

@@ -12,6 +12,10 @@ struct ChargingTotals: Codable {
     let avgEnergyKwh: Double?
     let acSessions: Int?
     let dcSessions: Int?
+    let acEnergyKwh: Double?
+    let dcEnergyKwh: Double?
+    let acDurationMin: Double?
+    let dcDurationMin: Double?
 }
 
 struct ChargingBucket: Codable, Identifiable {
@@ -31,4 +35,17 @@ struct DCCurvePoint: Codable, Identifiable {
     let chargeEnergyAdded: Double?
     let chargerVoltage: Int?
     let outsideTemp: Double?
+}
+
+struct TopChargingStation: Codable, Identifiable {
+    var id: Int { addressId ?? 0 }
+    let addressId: Int?
+    let displayName: String?
+    let city: String?
+    let country: String?
+    let latitude: Double?
+    let longitude: Double?
+    let sessions: Int?
+    let totalEnergyKwh: Double?
+    let totalCost: Double?
 }

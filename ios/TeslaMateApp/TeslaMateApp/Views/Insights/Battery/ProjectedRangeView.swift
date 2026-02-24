@@ -4,7 +4,15 @@ import Charts
 struct ProjectedRangeView: View {
     let carId: Int
     @State private var viewModel = ProjectedRangeViewModel()
+    @State private var chartMode: ChartMode = .overTime
     @Environment(UnitPreference.self) private var unitPreference
+
+    enum ChartMode: String, CaseIterable, Identifiable {
+        case overTime = "Over Time"
+        case vsMileage = "vs Mileage"
+        case vsTemperature = "vs Temperature"
+        var id: String { rawValue }
+    }
 
     var body: some View {
         ScrollView {
@@ -21,7 +29,22 @@ struct ProjectedRangeView: View {
                     }
 
                     if !data.points.isEmpty {
-                        projectedRangeChart(data.points)
+                        Picker("Chart Mode", selection: $chartMode) {
+                            ForEach(ChartMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal)
+
+                        switch chartMode {
+                        case .overTime:
+                            overTimeChart(data.points)
+                        case .vsMileage:
+                            vsMileageChart(data.points)
+                        case .vsTemperature:
+                            vsTemperatureChart(data.points)
+                        }
                     }
 
                     if data.points.isEmpty {
@@ -43,7 +66,9 @@ struct ProjectedRangeView: View {
         }
     }
 
-    private func projectedRangeChart(_ points: [ProjectedRangePoint]) -> some View {
+    // MARK: - Over Time Chart
+
+    private func overTimeChart(_ points: [ProjectedRangePoint]) -> some View {
         let chartData: [(date: Date, value: Double, series: String)] = points.flatMap { point -> [(Date, Double, String)] in
             guard let dateStr = point.date, let date = parseDate(dateStr) else { return [] }
             var result: [(Date, Double, String)] = []
@@ -73,6 +98,64 @@ struct ProjectedRangeView: View {
         ])
         .frame(height: 250)
         .padding(.horizontal)
+    }
+
+    // MARK: - vs Mileage Chart
+
+    private func vsMileageChart(_ points: [ProjectedRangePoint]) -> some View {
+        let filtered = points.filter { $0.odometerKm != nil && $0.ratedRangeKm != nil }
+
+        return Group {
+            if filtered.isEmpty {
+                ContentUnavailableView("No Odometer Data", systemImage: "speedometer", description: Text("Odometer data not available for these charges."))
+            } else {
+                Chart(filtered) { point in
+                    if let odo = point.odometerKm, let range = point.ratedRangeKm {
+                        let x = unitPreference.useMiles ? odo * 0.621371 : odo
+                        let y = unitPreference.useMiles ? range * 0.621371 : range
+                        PointMark(
+                            x: .value("Odometer", x),
+                            y: .value("Range", y)
+                        )
+                        .foregroundStyle(.blue.opacity(0.6))
+                        .symbolSize(20)
+                    }
+                }
+                .chartXAxisLabel(unitPreference.useMiles ? "Miles" : "km")
+                .chartYAxisLabel(unitPreference.useMiles ? "Miles" : "km")
+                .frame(height: 250)
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    // MARK: - vs Temperature Chart
+
+    private func vsTemperatureChart(_ points: [ProjectedRangePoint]) -> some View {
+        let filtered = points.filter { $0.outsideTemp != nil && $0.ratedRangeKm != nil }
+
+        return Group {
+            if filtered.isEmpty {
+                ContentUnavailableView("No Temperature Data", systemImage: "thermometer", description: Text("Temperature data not available for these charges."))
+            } else {
+                Chart(filtered) { point in
+                    if let temp = point.outsideTemp, let range = point.ratedRangeKm {
+                        let x = unitPreference.useFahrenheit ? temp * 9.0 / 5.0 + 32.0 : temp
+                        let y = unitPreference.useMiles ? range * 0.621371 : range
+                        PointMark(
+                            x: .value("Temperature", x),
+                            y: .value("Range", y)
+                        )
+                        .foregroundStyle(.orange.opacity(0.6))
+                        .symbolSize(20)
+                    }
+                }
+                .chartXAxisLabel(unitPreference.temperatureUnit)
+                .chartYAxisLabel(unitPreference.useMiles ? "Miles" : "km")
+                .frame(height: 250)
+                .padding(.horizontal)
+            }
+        }
     }
 
     private func parseDate(_ str: String) -> Date? {

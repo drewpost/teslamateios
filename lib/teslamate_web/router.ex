@@ -95,7 +95,9 @@ defmodule TeslaMateWeb.Router do
       get "/cars/:car_id/stats/visited/routes", StatsController, :visited_routes
       get "/cars/:car_id/stats/visited/places", StatsController, :visited_places
       get "/cars/:car_id/stats/charging", StatsController, :charging
+      get "/cars/:car_id/stats/charging/top_stations", StatsController, :top_charging_stations
       get "/cars/:car_id/stats/charging/dc_curve", StatsController, :dc_curve
+      get "/cars/:car_id/stats/statistics", StatsController, :statistics
       get "/cars/:car_id/states", StatsController, :states
       get "/cars/:car_id/timeline", StatsController, :timeline
       get "/cars/:car_id/updates", StatsController, :updates

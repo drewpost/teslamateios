@@ -26,6 +26,12 @@ struct MileageView: View {
                     }
 
                     if !data.buckets.isEmpty {
+                        // Cumulative area chart
+                        Text("Cumulative")
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal)
+
                         Chart(data.buckets) { bucket in
                             if let period = bucket.period.flatMap({ parseDate($0) }),
                                let cumulative = bucket.cumulativeKm {
@@ -45,6 +51,28 @@ struct MileageView: View {
                         }
                         .chartYAxisLabel(unitPreference.useMiles ? "mi" : "km")
                         .frame(height: 250)
+                        .padding(.horizontal)
+
+                        // Per-period bar chart
+                        Text("Per Period")
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal)
+                            .padding(.top, 8)
+
+                        Chart(data.buckets) { bucket in
+                            if let period = bucket.period.flatMap({ parseDate($0) }),
+                               let dist = bucket.distanceKm {
+                                let value = unitPreference.useMiles ? dist * 0.621371 : dist
+                                BarMark(
+                                    x: .value("Period", period, unit: .month),
+                                    y: .value("Distance", value)
+                                )
+                                .foregroundStyle(.blue.gradient)
+                            }
+                        }
+                        .chartYAxisLabel(unitPreference.useMiles ? "mi" : "km")
+                        .frame(height: 200)
                         .padding(.horizontal)
                     }
                 } else if let error = viewModel.error {
